@@ -1,0 +1,143 @@
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.db import get_db
+from app.models import Base, Story
+from app.routers import x3 as x3_router
+from app.services import settings
+from app.services.briefing import (
+    maybe_publish_daily_briefing,
+    paper_status,
+    prune_old_briefings,
+    publish_daily_briefing,
+)
+
+
+def _session() -> Session:
+    engine = create_engine(
+        "sqlite://",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return Session(engine)
+
+
+def _client(db: Session) -> TestClient:
+    app = FastAPI()
+    app.include_router(x3_router.router)
+
+    def override():
+        yield db
+
+    app.dependency_overrides[get_db] = override
+    return TestClient(app)
+
+
+def _seed_story(db: Session) -> None:
+    when = datetime(2026, 9, 14, 5, 0, tzinfo=timezone.utc)
+    db.add(
+        Story(
+            title="Morning headline",
+            summary="A short summary.",
+            source_name="BBC World",
+            canonical_url="https://example.com/morning",
+            content_hash="m",
+            cluster_key="m",
+            published_at=when,
+            created_at=when,
+        )
+    )
+    db.commit()
+
+
+def _freeze_briefing_clock(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    monkeypatch.setattr("app.services.briefing.utcnow", lambda: datetime(2026, 9, 14, 7, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr("app.services.briefing.env.story_retention_days", 7)
+
+
+def test_publish_writes_dated_file_once(tmp_path: Path, monkeypatch):
+    _freeze_briefing_clock(monkeypatch, tmp_path)
+    db = _session()
+    _seed_story(db)
+    now = datetime(2026, 9, 14, 7, 0)
+    path = publish_daily_briefing(db, now=now)
+    assert path.name == "news-2026-09-14.epub"
+    assert path.exists()
+    first = path.read_bytes()
+    path.write_bytes(b"frozen-once")
+    again = publish_daily_briefing(db, now=now)
+    assert again.read_bytes() == b"frozen-once"
+    assert first != b"frozen-once"
+
+
+def test_maybe_publish_waits_until_publish_at(tmp_path: Path, monkeypatch):
+    _freeze_briefing_clock(monkeypatch, tmp_path)
+    db = _session()
+    _seed_story(db)
+    settings.set_value(db, "briefing_publish_at", "06:30")
+    assert maybe_publish_daily_briefing(db, now=datetime(2026, 9, 14, 6, 0)) is None
+    assert not (tmp_path / "news-2026-09-14.epub").exists()
+    path = maybe_publish_daily_briefing(db, now=datetime(2026, 9, 14, 6, 30))
+    assert path is not None
+    assert path.exists()
+    assert maybe_publish_daily_briefing(db, now=datetime(2026, 9, 14, 8, 0)) is None
+
+
+def test_prune_keeps_seven_dated_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    today = date(2026, 9, 14)
+    for offset in range(8):
+        day = today - timedelta(days=offset)
+        (tmp_path / f"news-{day.isoformat()}.epub").write_bytes(b"x")
+        (tmp_path / f"news-{day.isoformat()}.txt").write_text("x", encoding="utf-8")
+    assert prune_old_briefings(keep=7) == 1
+    remaining = {path.name for path in tmp_path.glob("*.epub")}
+    expected = {f"news-{(today - timedelta(days=offset)).isoformat()}.epub" for offset in range(7)}
+    assert remaining == expected
+
+
+def test_x3_serves_frozen_file_not_live_rebuild(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "x3_catalog_login", "0")
+    frozen = tmp_path / "news-2026-09-14.epub"
+    frozen.write_bytes(b"PK frozen-paper")
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    client = _client(db)
+    response = client.get("/api/x3/news.epub")
+    assert response.status_code == 200
+    assert response.content == b"PK frozen-paper"
+
+
+def test_x3_missing_paper_is_404(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "x3_catalog_login", "0")
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    client = _client(db)
+    response = client.get("/api/x3/news.epub")
+    assert response.status_code == 404
+    assert "not published" in response.json()["detail"]
+
+
+def test_paper_status_message(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "briefing_publish_at", "06:30")
+    now = datetime(2026, 9, 14, 7, 0)
+    status = paper_status(db, now=now)
+    assert status["published"] is False
+    assert "not ready" in status["message"]
+    (tmp_path / "news-2026-09-14.epub").write_bytes(b"x")
+    status = paper_status(db, now=now)
+    assert status["published"] is True
+    assert "published at 06:30" in status["message"]

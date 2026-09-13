@@ -52,6 +52,36 @@ def test_snapshot_skips_probe_until_remembered(monkeypatch):
     assert called == []
 
 
+def test_enqueue_dedupes_same_save_path(tmp_path: Path):
+    db = _session()
+    path = tmp_path / "news.epub"
+    path.write_bytes(b"a")
+    first = enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
+    path.write_bytes(b"abc")
+    second = enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
+    assert first.id == second.id
+    assert db.query(SyncTask).count() == 1
+    assert second.size == 3
+
+
+def test_cancel_pending_removes_from_queue(tmp_path: Path):
+    db = _session()
+    path = tmp_path / "notes.epub"
+    path.write_bytes(b"epub")
+    task = enqueue_sync_file(db, path, "notes.epub", kind="crosspoint", save_path="/News/notes.epub")
+    assert reader_push.cancel_pending(db, task.task_id) is True
+    assert reader_push.pending_crosspoint(db) == []
+    assert db.query(SyncTask).one().status == "cancelled"
+    assert path.exists()
+
+
+def test_queue_label_distinguishes_briefing_and_send():
+    briefing = SyncTask(save_path="/News/NewsCast-2026-09-14.epub", file_path="x")
+    send = SyncTask(save_path="/News/notes.epub", file_path="x")
+    assert "briefing" in reader_push.queue_label(briefing).lower()
+    assert reader_push.queue_label(send) == "Send: notes.epub"
+
+
 def test_upload_marks_complete(tmp_path: Path, monkeypatch):
     db = _session()
     path = tmp_path / "news.epub"

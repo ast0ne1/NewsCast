@@ -1,46 +1,40 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.auth import require_x3_token
-from app.config import BRIEFING_DIR
 from app.db import get_db
-from app.services.briefing import current_briefing_payload, normalize_briefing_day, render_txt, write_briefing_files
+from app.services.briefing import current_briefing_payload, frozen_briefing_path, normalize_briefing_day
 
 router = APIRouter(prefix="/api/x3", dependencies=[Depends(require_x3_token)])
 
 
-def _day_payload(db, day: str | None):
+def _day_key(day: str | None) -> str:
     key = normalize_briefing_day(day)
-    if key == "all":
-        key = "today"
-    stem = "news-yesterday" if key == "yesterday" else "news"
-    payload = current_briefing_payload(db, day=key)
-    return payload, stem
+    return "today" if key == "all" else key
 
 
 @router.get("/news")
 def x3_news(db: Annotated[Session, Depends(get_db)], day: str = "today"):
-    payload, _stem = _day_payload(db, day)
-    return payload
+    return current_briefing_payload(db, day=_day_key(day))
 
 
 @router.get("/news.txt", response_class=PlainTextResponse)
 def x3_news_txt(db: Annotated[Session, Depends(get_db)], day: str = "today"):
-    payload, stem = _day_payload(db, day)
-    write_briefing_files(payload, stem=stem)
-    return render_txt(payload)
+    key = _day_key(day)
+    path = frozen_briefing_path(key, suffix="txt", fallback=key != "yesterday")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
+    return path.read_text(encoding="utf-8")
 
 
 @router.get("/news.epub")
 def x3_news_epub(db: Annotated[Session, Depends(get_db)], day: str = "today"):
-    payload, stem = _day_payload(db, day)
-    files = write_briefing_files(payload, stem=stem)
-    filename = "newscast-news-yesterday.epub" if stem == "news-yesterday" else "newscast-news.epub"
-    return FileResponse(
-        files["epub"],
-        media_type="application/epub+zip",
-        filename=filename,
-    )
+    key = _day_key(day)
+    path = frozen_briefing_path(key, suffix="epub", fallback=key != "yesterday")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
+    filename = "newscast-news-yesterday.epub" if key == "yesterday" else "newscast-news.epub"
+    return FileResponse(path, media_type="application/epub+zip", filename=filename)

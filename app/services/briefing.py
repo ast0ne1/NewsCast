@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import html
+import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 
 from ebooklib import epub
@@ -11,11 +14,32 @@ from sqlalchemy.orm import Session
 from app.config import BRIEFING_DIR, env
 from app.models import Feed, Story, SyncTask, utcnow
 from app.services import settings
+from app.services.categories import BUILTIN_LABELS, DEFAULT_CATEGORY, category_labels
 from app.services.filters import story_kept
 
 BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BRIEFING_STORIES = 20
 BRIEFING_DAYS = {"today", "yesterday", "all"}
+BRIEFING_SAVE_RE = re.compile(r"(?:NewsCast|news)-(\d{4}-\d{2}-\d{2})\.(epub|txt)$", re.I)
+KEEP_DATED_BRIEFINGS = 7
+DEFAULT_PUBLISH_AT = "06:30"
+SAVED_CATEGORY = "longreads"
+SAVED_CATEGORY_LABEL = "Long reads"
+EINK_CSS = """
+body { font-family: Georgia, "Times New Roman", serif; font-size: 1.15em; line-height: 1.45; color: #111; background: #fff; margin: 1.2em; }
+h1 { font-size: 1.7em; line-height: 1.2; margin: 0 0 0.4em; }
+h2 { font-size: 1.25em; line-height: 1.25; margin: 1.2em 0 0.4em; }
+h3 { font-size: 1.05em; margin: 1em 0 0.3em; }
+p, li { margin: 0 0 0.7em; }
+a { color: #111; }
+.meta { font-style: italic; color: #333; }
+.contents ol { padding-left: 1.2em; }
+.story { page-break-before: always; }
+img { display: none; }
+"""
+_ALLOWED_TAGS = {"p", "br", "em", "strong", "b", "i", "u", "a", "ul", "ol", "li", "blockquote", "h3", "h4", "h5", "h6"}
+_SKIP_TAGS = {"script", "style"}
+_DROP_TAGS = {"img", "video", "audio", "source", "iframe", "object", "embed"}
 
 
 def normalize_briefing_day(value: str | None) -> str:
@@ -224,14 +248,241 @@ def briefing_title(instance_name: str = "") -> str:
     return f"NewsCast · {name}" if name else "NewsCast briefing"
 
 
-def stories_payload(stories: list[Story], instance_name: str = "") -> dict:
+def normalize_publish_at(value: str | None) -> str:
+    raw = (value or "").strip().replace(".", ":")
+    if not raw:
+        return DEFAULT_PUBLISH_AT
+    parts = raw.split(":")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+    except (TypeError, ValueError):
+        return DEFAULT_PUBLISH_AT
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return DEFAULT_PUBLISH_AT
+    return f"{hour:02d}:{minute:02d}"
+
+
+def briefing_publish_at(db: Session) -> str:
+    return normalize_publish_at(settings.get_value(db, "briefing_publish_at"))
+
+
+def dated_stem(day: date) -> str:
+    return f"news-{day.isoformat()}"
+
+
+def dated_briefing_path(day: date, suffix: str = "epub") -> Path:
+    return BRIEFING_DIR / f"{dated_stem(day)}.{suffix}"
+
+
+def _local_today(now: datetime | None = None) -> date:
+    when = now or datetime.now()
+    return when.date() if isinstance(when, datetime) else when
+
+
+def frozen_briefing_path(
+    day: str | None = "today",
+    *,
+    suffix: str = "epub",
+    fallback: bool = True,
+    now: datetime | None = None,
+) -> Path | None:
+    key = normalize_briefing_day(day)
+    today = _local_today(now)
+    target = today - timedelta(days=1) if key == "yesterday" else today
+    path = dated_briefing_path(target, suffix)
+    if path.exists():
+        return path
+    if fallback and key != "yesterday":
+        yesterday = dated_briefing_path(today - timedelta(days=1), suffix)
+        if yesterday.exists():
+            return yesterday
+    return None
+
+
+def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS) -> int:
+    files = sorted(BRIEFING_DIR.glob("news-????-??-??.epub"), reverse=True)
+    keep_stems = {path.stem for path in files[:keep]}
+    removed = 0
+    for path in files[keep:]:
+        path.unlink(missing_ok=True)
+        path.with_suffix(".txt").unlink(missing_ok=True)
+        removed += 1
+    for path in BRIEFING_DIR.glob("news-????-??-??.txt"):
+        if path.stem not in keep_stems:
+            path.unlink(missing_ok=True)
+    return removed
+
+
+def paper_status(db: Session, now: datetime | None = None) -> dict:
+    when = now or datetime.now()
+    today = _local_today(when)
+    path = dated_briefing_path(today)
+    publish_at = briefing_publish_at(db)
+    published = path.exists()
+    return {
+        "publish_at": publish_at,
+        "published": published,
+        "date": today.isoformat(),
+        "path": str(path) if published else None,
+        "message": (
+            f"Today's paper published at {publish_at}."
+            if published
+            else f"Publishes at {publish_at} — not ready yet."
+        ),
+    }
+
+
+def maybe_publish_daily_briefing(db: Session, now: datetime | None = None) -> Path | None:
+    when = now or datetime.now()
+    hour, minute = (int(part) for part in briefing_publish_at(db).split(":"))
+    if (when.hour, when.minute) < (hour, minute):
+        prune_old_briefings()
+        return None
+    if dated_briefing_path(when.date()).exists():
+        return None
+    return publish_daily_briefing(db, now=when)
+
+
+def publish_daily_briefing(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    overwrite: bool = False,
+) -> Path:
+    when = now or datetime.now()
+    day = _local_today(when)
+    dest = dated_briefing_path(day)
+    created = overwrite or not dest.exists()
+    if created:
+        payload = current_briefing_payload(db, day="today")
+        write_briefing_files(payload, stem=dated_stem(day))
+    prune_old_briefings()
+    if created:
+        enqueue_latest_briefing(db)
+        if settings.reader_push_enabled(db):
+            from app.services import reader_push
+
+            reader_push.enqueue_frozen_briefing(db)
+    return dest
+
+
+class _HtmlSanitizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _SKIP_TAGS:
+            self._skip += 1
+            return
+        if self._skip or tag in _DROP_TAGS:
+            return
+        if tag not in _ALLOWED_TAGS:
+            return
+        if tag == "br":
+            self.parts.append("<br/>")
+            return
+        if tag == "a":
+            href = ""
+            for key, value in attrs:
+                if key == "href" and value and value.startswith(("http://", "https://", "/")):
+                    href = html.escape(value, quote=True)
+                    break
+            self.parts.append(f'<a href="{href}">' if href else "<a>")
+            return
+        self.parts.append(f"<{tag}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _SKIP_TAGS:
+            self._skip = max(0, self._skip - 1)
+            return
+        if self._skip or tag in _DROP_TAGS or tag not in _ALLOWED_TAGS or tag == "br":
+            return
+        self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip:
+            return
+        self.parts.append(html.escape(data))
+
+
+def sanitize_html(value: str) -> str:
+    raw = value or ""
+    if "<" not in raw:
+        return html.escape(raw)
+    parser = _HtmlSanitizer()
+    parser.feed(raw)
+    parser.close()
+    return "".join(parser.parts)
+
+
+def _story_body(summary: str) -> str:
+    cleaned = sanitize_html(summary or "").strip()
+    if not cleaned:
+        return "<p></p>"
+    if cleaned.lstrip().startswith("<"):
+        return cleaned
+    return f"<p>{cleaned}</p>"
+
+
+def _payload_date_label(payload: dict) -> str:
+    raw = str(payload.get("generated_at") or "")
+    try:
+        when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return when.strftime("%d %b %Y")
+    except ValueError:
+        return raw[:10]
+
+
+def group_stories(stories: list[dict], labels: dict[str, str] | None = None) -> list[tuple[str, str, list[dict]]]:
+    names = labels or {}
+    order = [SAVED_CATEGORY, *BUILTIN_LABELS.keys()]
+    grouped: dict[str, list[dict]] = {}
+    extras: list[str] = []
+    for story in stories:
+        key = story.get("category") or DEFAULT_CATEGORY
+        if key not in grouped:
+            grouped[key] = []
+            if key not in order:
+                extras.append(key)
+        grouped[key].append(story)
+    result: list[tuple[str, str, list[dict]]] = []
+    for key in [*order, *extras]:
+        items = grouped.get(key)
+        if not items:
+            continue
+        if key == SAVED_CATEGORY:
+            label = SAVED_CATEGORY_LABEL
+        else:
+            label = names.get(key) or BUILTIN_LABELS.get(key) or items[0].get("category_label") or key
+        result.append((key, label, items))
+    return result
+
+
+def stories_payload(
+    stories: list[Story],
+    instance_name: str = "",
+    *,
+    feeds: dict[str, Feed] | None = None,
+    labels: dict[str, str] | None = None,
+) -> dict:
     generated = datetime.now(timezone.utc).replace(microsecond=0)
     title = briefing_title(instance_name)
-    return {
-        "title": title,
-        "generated_at": generated.isoformat().replace("+00:00", "Z"),
-        "device": "xteink-x3",
-        "stories": [
+    feed_map = feeds or {}
+    names = labels or {}
+    items = []
+    for story in stories:
+        saved = bool(getattr(story, "saved", False))
+        if saved:
+            category = SAVED_CATEGORY
+            category_label = SAVED_CATEGORY_LABEL
+        else:
+            feed = feed_map.get(story.source_name)
+            category = getattr(feed, "category", None) or DEFAULT_CATEGORY
+            category_label = names.get(category) or BUILTIN_LABELS.get(category, category)
+        items.append(
             {
                 "id": str(story.id),
                 "title": story.title,
@@ -244,66 +495,110 @@ def stories_payload(stories: list[Story], instance_name: str = "") -> dict:
                     else None
                 ),
                 "published_label": format_published(story.published_at or story.created_at),
+                "category": category,
+                "category_label": category_label,
+                "saved": saved,
             }
-            for story in stories
-        ],
+        )
+    return {
+        "title": title,
+        "generated_at": generated.isoformat().replace("+00:00", "Z"),
+        "device": "xteink-x3",
+        "stories": items,
     }
 
 
 def render_txt(payload: dict) -> str:
     lines = [payload.get("title") or "NewsCast briefing", payload["generated_at"], ""]
-    if not payload["stories"]:
+    stories = payload.get("stories") or []
+    if not stories:
         lines.append("No stories yet. Refresh from the NewsCast UI.")
         return "\n".join(lines) + "\n"
-    for index, story in enumerate(payload["stories"], start=1):
-        lines.append(f"{index}. {story['title']}")
-        if story.get("source"):
-            lines.append(story["source"])
-        if story.get("published_label"):
-            lines.append(story["published_label"])
-        lines.append(story["summary"])
-        if story.get("url"):
-            lines.append(story["url"])
+    index = 1
+    for _key, label, group in group_stories(stories):
+        lines.append(label)
         lines.append("")
+        for story in group:
+            lines.append(f"{index}. {story['title']}")
+            if story.get("source"):
+                lines.append(story["source"])
+            if story.get("published_label"):
+                lines.append(story["published_label"])
+            lines.append(story["summary"])
+            if story.get("url"):
+                lines.append(story["url"])
+            lines.append("")
+            index += 1
     return "\n".join(lines).rstrip() + "\n"
 
 
 def write_epub(payload: dict, dest: Path) -> None:
     book = epub.EpubBook()
-    book.set_identifier(f"newscast-{payload['generated_at']}")
+    generated = payload.get("generated_at") or utcnow().isoformat()
     heading = payload.get("title") or "NewsCast briefing"
-    book.set_title(f"{heading} {payload['generated_at'][:10]}")
+    date_label = _payload_date_label(payload)
+    stories = payload.get("stories") or []
+    book.set_identifier(f"newscast-{generated}")
+    book.set_title(f"{heading} {generated[:10]}")
     book.set_language("en")
     book.add_author("NewsCast")
 
-    chapters = []
-    intro = epub.EpubHtml(title="Briefing", file_name="intro.xhtml", lang="en")
-    heading = payload.get("title") or "NewsCast briefing"
-    intro.content = (
-        f"<h1>{heading}</h1><p>{payload['generated_at']}</p>"
-        if payload["stories"]
-        else f"<h1>{heading}</h1><p>No stories yet.</p>"
-    )
-    book.add_item(intro)
-    chapters.append(intro)
+    style = epub.EpubItem(uid="style", file_name="style/eink.css", media_type="text/css", content=EINK_CSS.encode())
+    book.add_item(style)
 
-    for index, story in enumerate(payload["stories"], start=1):
-        chapter = epub.EpubHtml(
-            title=story["title"][:80],
-            file_name=f"story-{index}.xhtml",
-            lang="en",
-        )
-        source = f"<p><em>{story['source']}</em></p>" if story.get("source") else ""
-        published = f"<p>{story['published_label']}</p>" if story.get("published_label") else ""
-        link = f'<p><a href="{story["url"]}">Original</a></p>' if story.get("url") else ""
-        chapter.content = f"<h2>{story['title']}</h2>{source}{published}<p>{story['summary']}</p>{link}"
-        book.add_item(chapter)
-        chapters.append(chapter)
+    groups = group_stories(stories)
+    cover_bits = [
+        f"<h1>{html.escape(heading)}</h1>",
+        f'<p class="meta">{html.escape(date_label)}</p>',
+    ]
+    if stories:
+        count = len(stories)
+        cover_bits.append(f'<p class="meta">{count} stor{"y" if count == 1 else "ies"}</p>')
+        cover_bits.append('<div class="contents"><h2>Contents</h2>')
+        for _key, label, group in groups:
+            cover_bits.append(f"<h3>{html.escape(label)}</h3><ol>")
+            for story in group:
+                cover_bits.append(f"<li>{html.escape(story.get('title') or 'Untitled')}</li>")
+            cover_bits.append("</ol>")
+        cover_bits.append("</div>")
+    else:
+        cover_bits.append("<p>No stories yet.</p>")
 
-    book.toc = chapters
+    cover = epub.EpubHtml(title="Cover", file_name="cover.xhtml", lang="en")
+    cover.content = "".join(cover_bits)
+    cover.add_item(style)
+    cover.add_link(href="style/eink.css", rel="stylesheet", type="text/css")
+    book.add_item(cover)
+
+    chapters = [cover]
+    toc: list = []
+    index = 1
+    for _key, label, group in groups:
+        section_chapters = []
+        for story in group:
+            title = story.get("title") or "Untitled"
+            chapter = epub.EpubHtml(title=title[:80], file_name=f"story-{index}.xhtml", lang="en")
+            source = f'<p class="meta">{html.escape(story["source"])}</p>' if story.get("source") else ""
+            published = f'<p class="meta">{html.escape(story["published_label"])}</p>' if story.get("published_label") else ""
+            url = story.get("url") or ""
+            link = f'<p><a href="{html.escape(url, quote=True)}">Original</a></p>' if url else ""
+            chapter.content = (
+                f'<div class="story"><h1>{html.escape(title)}</h1>{source}{published}{_story_body(story.get("summary") or "")}{link}</div>'
+            )
+            chapter.add_item(style)
+            chapter.add_link(href="style/eink.css", rel="stylesheet", type="text/css")
+            book.add_item(chapter)
+            chapters.append(chapter)
+            section_chapters.append(chapter)
+            index += 1
+        if section_chapters:
+            toc.append((epub.Section(label), tuple(section_chapters)))
+
+    book.toc = toc or [cover]
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
     book.spine = ["nav", *chapters]
+    dest.parent.mkdir(parents=True, exist_ok=True)
     epub.write_epub(str(dest), book)
 
 
@@ -317,28 +612,48 @@ def write_briefing_files(payload: dict, stem: str = "news") -> dict[str, Path]:
 
 
 def current_briefing_payload(db: Session, day: str | None = "today") -> dict:
-    return stories_payload(current_stories(db, day=day), settings.get_value(db, "instance_name"))
+    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+    return stories_payload(
+        current_stories(db, day=day),
+        settings.get_value(db, "instance_name"),
+        feeds=feeds,
+        labels=category_labels(db),
+    )
 
 
 def enqueue_latest_briefing(db: Session) -> SyncTask | None:
-    payload = current_briefing_payload(db)
-    files = write_briefing_files(payload)
     fmt = (settings.get_value(db, "x3_briefing_format") or env.x3_briefing_format or "txt").lower()
     if fmt not in {"txt", "epub"}:
         fmt = "txt"
-    path = files[fmt]
-    save_name = f"NewsCast-{payload['generated_at'][:10]}.{fmt}"
-    return enqueue_sync_file(db, path, save_name)
+    path = frozen_briefing_path("today", suffix=fmt, fallback=False)
+    if path is None:
+        return None
+    date_part = path.stem.removeprefix("news-")
+    return enqueue_sync_file(db, path, f"NewsCast-{date_part}.{fmt}")
 
 
 def enqueue_sync_file(db: Session, path: Path, save_name: str, *, kind: str = "x3", save_path: str | None = None) -> SyncTask:
     device_id = settings.get_value(db, "x3_device_id") or env.x3_device_id or ""
     dest = save_path or (env.x3_save_path.rstrip("/") + "/" + save_name)
+    kind_name = kind if kind in {"x3", "crosspoint"} else "x3"
+    existing = (
+        db.query(SyncTask)
+        .filter(SyncTask.kind == kind_name)
+        .filter(SyncTask.status == "pending")
+        .filter(SyncTask.save_path == dest)
+        .first()
+    )
+    if existing:
+        existing.file_path = str(path)
+        existing.size = path.stat().st_size
+        db.commit()
+        db.refresh(existing)
+        return existing
     task = SyncTask(
         task_id=uuid.uuid4().hex,
         device_id=device_id,
         status="pending",
-        kind=kind if kind in {"x3", "crosspoint"} else "x3",
+        kind=kind_name,
         file_path=str(path),
         save_path=dest,
         size=path.stat().st_size,

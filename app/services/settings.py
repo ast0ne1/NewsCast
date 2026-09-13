@@ -83,6 +83,7 @@ UI_KEYS = (
     "x3_briefing_format",
     "ingest_interval_minutes",
     "briefing_limit",
+    "briefing_publish_at",
     "device_hostname",
     "github_repo",
     "keyword_include",
@@ -135,6 +136,8 @@ def _default_value(key: str) -> str:
         return "60"
     if key == "briefing_limit":
         return str(DEFAULT_BRIEFING_LIMIT)
+    if key == "briefing_publish_at":
+        return "06:30"
     if key == "reader_host":
         return "crosspoint.local"
     if key == "reader_upload_path":

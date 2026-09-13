@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime, timezone
 from pathlib import Path
 from posixpath import dirname, join
 
@@ -10,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.config import LIBRARY_DIR
 from app.models import LibraryFile, SyncTask, utcnow
 from app.services import settings
-from app.services.briefing import current_briefing_payload, enqueue_sync_file, write_briefing_files
+from app.services.briefing import BRIEFING_SAVE_RE, enqueue_sync_file, frozen_briefing_path
+from app.services.library import pretty_size
 
 logger = logging.getLogger("newscast.reader_push")
 UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
@@ -61,15 +63,71 @@ def pending_crosspoint(db: Session) -> list[SyncTask]:
     )
 
 
+def queue_label(task: SyncTask) -> str:
+    name = Path(task.save_path or task.file_path).name
+    match = BRIEFING_SAVE_RE.search(name)
+    if match:
+        day = date.fromisoformat(match.group(1))
+        if day == datetime.now().date():
+            return "Today's briefing"
+        return f"Briefing · {day.strftime('%d %b %Y')}"
+    return f"Send: {name}"
+
+
+def _created_label(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    when = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return when.astimezone(timezone.utc).strftime("%d %b %Y %H:%M") + " UTC"
+
+
+def queue_items(db: Session) -> list[dict]:
+    items = []
+    for task in pending_crosspoint(db):
+        name = Path(task.save_path or task.file_path).name
+        items.append(
+            {
+                "task_id": task.task_id,
+                "label": queue_label(task),
+                "name": name,
+                "size_label": pretty_size(task.size or 0),
+                "created_label": _created_label(task.created_at),
+            }
+        )
+    return items
+
+
+def cancel_pending(db: Session, task_id: str) -> bool:
+    task = (
+        db.query(SyncTask)
+        .filter(SyncTask.task_id == task_id)
+        .filter(SyncTask.status == "pending")
+        .first()
+    )
+    if task is None:
+        return False
+    task.status = "cancelled"
+    task.completed_at = utcnow()
+    db.commit()
+    return True
+
+
+def enqueue_frozen_briefing(db: Session) -> SyncTask | None:
+    path = frozen_briefing_path("today", suffix="epub", fallback=False)
+    if path is None:
+        return None
+    dest = reader_upload_dir(db)
+    date_part = path.stem.removeprefix("news-")
+    save_name = f"NewsCast-{date_part}.epub"
+    return enqueue_sync_file(db, path, save_name, kind="crosspoint", save_path=join(dest, save_name))
+
+
 def enqueue_briefing_and_library(db: Session) -> list[SyncTask]:
     dest = reader_upload_dir(db)
-    payload = current_briefing_payload(db, day="today")
-    files = write_briefing_files(payload, stem="news")
-    epub = files["epub"]
-    save_name = f"NewsCast-{payload['generated_at'][:10]}.epub"
-    tasks = [
-        enqueue_sync_file(db, epub, save_name, kind="crosspoint", save_path=join(dest, save_name)),
-    ]
+    tasks: list[SyncTask] = []
+    briefing_task = enqueue_frozen_briefing(db)
+    if briefing_task:
+        tasks.append(briefing_task)
     for item in db.query(LibraryFile).order_by(LibraryFile.created_at.desc()).all():
         path = LIBRARY_DIR / item.stored_name
         if not path.exists():
@@ -138,5 +196,6 @@ def snapshot(db: Session, *, probe: bool = True) -> dict:
         "online": online,
         "checked": checked,
         "pending": len(pending),
+        "queue": queue_items(db),
         "push_when_online": settings.reader_push_enabled(db),
     }

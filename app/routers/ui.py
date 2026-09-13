@@ -17,10 +17,14 @@ from app.models import Feed, LibraryFile, Story, SyncTask, utcnow
 from app.services import backup, favicon, hostname, library, qrcode, reader_push, settings, update
 from app.services.briefing import (
     briefing_path,
+    briefing_publish_at,
     current_saved_stories,
     current_stories,
     format_published,
     normalize_briefing_day,
+    normalize_publish_at,
+    paper_status,
+    publish_daily_briefing,
     search_stories,
 )
 from app.services.health import feed_health, feed_health_label
@@ -53,7 +57,7 @@ SETTINGS_TAB_ALIASES = {"access": "device"}
 SETTINGS_SAVE_TABS = {"device", "schedule", "filters", "llm", "reader", "update"}
 SETTINGS_LEDES = {
     "device": "Colour palette, admin login, hostname, and the Home or Work name for this copy.",
-    "schedule": "How often sources refresh, and how many stories Briefing shows.",
+    "schedule": "How often sources refresh, when the reader newspaper publishes, and how many stories Briefing shows.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
     "reader": "Catalog login, CrossPoint host, and push when the reader is on Wi-Fi.",
@@ -399,6 +403,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "x3_catalog_username": settings.catalog_username(db),
             "x3_token_set": bool(settings.get_value(db, "x3_sync_token")),
             "update_check": update.last_check(db),
+            "paper": paper_status(db),
         },
     )
 
@@ -448,6 +453,7 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "global_interval": settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes),
             "briefing_limits": settings.BRIEFING_LIMITS,
             "briefing_limit": settings.briefing_limit(db),
+            "briefing_publish_at": briefing_publish_at(db),
             "github_repo": update.repo_from_db(db),
             "update_check": update.last_check(db),
             "categories": list_categories(db),
@@ -529,8 +535,41 @@ def queue_reader_later(request: Request, db: Annotated[Session, Depends(get_db)]
         nxt = "/status"
     tasks = reader_push.enqueue_briefing_and_library(db)
     message = f"Queued {len(tasks)} file{'s' if len(tasks) != 1 else ''} for when the reader is on Wi-Fi."
+    if not paper_status(db)["published"]:
+        message += " Today's paper is not published yet."
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message, "pending": len(reader_push.pending_crosspoint(db))})
+    return RedirectResponse(nxt, status_code=303)
+
+
+@router.post("/reader/queue/{task_id}/cancel")
+def cancel_reader_queue(
+    task_id: str,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    next: Annotated[str, Form()] = "/status",
+):
+    nxt = safe_next(next)
+    if nxt not in {"/status", "/library"}:
+        nxt = "/status"
+    if not reader_push.cancel_pending(db, task_id):
+        return _form_error(request, "That queued file was already gone.", nxt)
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": "Removed from the queue."})
+    return RedirectResponse(nxt, status_code=303)
+
+
+@router.post("/reader/publish")
+def publish_reader_paper(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
+    nxt = safe_next(next)
+    if nxt not in {"/status", "/library"}:
+        nxt = "/status"
+    publish_daily_briefing(db, overwrite=True)
+    if settings.reader_push_enabled(db):
+        reader_push.enqueue_frozen_briefing(db)
+    message = "Published today's paper."
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": message})
     return RedirectResponse(nxt, status_code=303)
 
 
@@ -742,6 +781,7 @@ def save_settings(
     device_hostname: Annotated[str, Form()] = "",
     ingest_interval_minutes: Annotated[str, Form()] = "",
     briefing_limit: Annotated[str, Form()] = "",
+    briefing_publish_at: Annotated[str, Form()] = "",
     github_repo: Annotated[str, Form()] = "",
     keyword_include: Annotated[str, Form()] = "",
     keyword_exclude: Annotated[str, Form()] = "",
@@ -839,6 +879,8 @@ def save_settings(
         if limit not in settings.BRIEFING_LIMIT_VALUES:
             return _settings_error(request, "Choose 10, 20, 30, 40, or 50 stories.", tab)
         settings.set_value(db, "briefing_limit", str(limit))
+    if briefing_publish_at.strip():
+        settings.set_value(db, "briefing_publish_at", normalize_publish_at(briefing_publish_at))
     repo = update.normalize_repo(github_repo)
     if github_repo.strip() and not repo:
         return _settings_error(request, "GitHub repository must look like owner/NewsCast.", tab)

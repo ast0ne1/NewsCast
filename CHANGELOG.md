@@ -5,6 +5,8 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 ## 0.0.0.2 — 2026-09-13
 
 ### Added
+- Reader newspaper publishes at a set local time (default 06:30) as a dated EPUB with category TOC, e-ink CSS, and a cover; Status can publish now
+- Status and Send list queued CrossPoint files with briefing vs Send labels and a cancel control
 - Show-password icons on the new and confirm password fields on Settings Device
 - Colour palettes Default, Ocean, Forest, and Slate, each with the existing light / dark / Auto switch; picker is on Settings Device
 - README shows phone-width screenshots: sign-in, then Briefing, Saved, Search, Send, Feeds, Catalog, Status, and Settings
@@ -16,6 +18,8 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 - Status and Send can push the briefing and library to CrossPoint when it is on Wi-Fi, or queue files while the reader is asleep
 
 ### Changed
+- OPDS and `/api/x3/news.epub` serve the frozen dated paper instead of rebuilding from live stories
+- Refresh no longer queues a new briefing file; the publish job or Publish now does that, and the same reader path is not queued twice
 - Settings Access tab is now Device; the hostname card is labelled Network
 - Search uses the same panel head, form layout, and text-field styling as Saved and Send
 - Send and Status no longer ping the reader on load; use Check reader to see if it is online or asleep

@@ -49,6 +49,7 @@
   <a class="text-link" href="/api/x3/news.txt">Download briefing.txt</a>
   <a class="text-link" href="/api/x3/news.epub">Download briefing.epub</a>
   <a class="text-link" href="/api/x3/news.epub?day=yesterday">Download yesterday.epub</a>
+  <p class="hint">{{ paper.message }}</p>
 </div>
 
 <div class="card stack">
@@ -75,7 +76,12 @@
       <input type="hidden" name="next" value="/status" />
       <button class="btn btn-secondary" type="submit">Queue for later</button>
     </form>
+    <form method="post" action="/reader/publish">
+      <input type="hidden" name="next" value="/status" />
+      <button class="btn btn-secondary" type="submit">Publish now</button>
+    </form>
   </div>
+  {% include "_queue.html" %}
 </div>
 
 <div class="card stack qr-card">

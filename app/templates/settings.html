@@ -123,7 +123,12 @@
           {% endfor %}
         </select>
       </label>
-      <p class="hint">The Briefing tab and the reader briefing use this cap. Sources are still mixed so one feed does not take every slot.</p>
+      <p class="hint">The Briefing tab stays live. The reader EPUB uses this cap and freezes at publish time.</p>
+      <label>
+        Publish at
+        <input type="time" name="briefing_publish_at" value="{{ briefing_publish_at }}" />
+      </label>
+      <p class="hint">Local time on this machine. After this time NewsCast writes today’s dated EPUB and keeps about a week of papers.</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>

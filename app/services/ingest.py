@@ -438,7 +438,6 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
             translated = _backfill_translations(db)
         _purge_old_stories(db)
         db.commit()
-        briefing.enqueue_latest_briefing(db)
         if feed_id is not None:
             message = f"Updated {feeds[0].name}. Added {created} new stor{'y' if created == 1 else 'ies'}."
         else:

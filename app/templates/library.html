@@ -22,11 +22,14 @@
     <input type="hidden" name="next" value="/library" />
     <button class="btn btn-secondary" type="submit">Push now</button>
   </form>
-  <form method="post" action="/reader/queue">
+    <form method="post" action="/reader/queue">
     <input type="hidden" name="next" value="/library" />
     <button class="btn btn-secondary" type="submit">Queue for later</button>
   </form>
 </div>
+{% with queue_next='/library' %}
+{% include "_queue.html" %}
+{% endwith %}
 
 <form method="post" action="/library" class="card panel saved-form" enctype="multipart/form-data" data-busy-label="Queuing…">
   <div class="panel-head">

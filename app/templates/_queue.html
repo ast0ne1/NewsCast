@@ -1,0 +1,16 @@
+{% if reader.queue %}
+<ul class="feed-list queue-list">
+  {% for item in reader.queue %}
+  <li class="card feed-row">
+    <div class="feed-copy">
+      <h2>{{ item.label }}</h2>
+      <p class="meta">{{ item.name }} · {{ item.size_label }}{% if item.created_label %} · {{ item.created_label }}{% endif %}</p>
+    </div>
+    <form method="post" action="/reader/queue/{{ item.task_id }}/cancel">
+      <input type="hidden" name="next" value="{{ queue_next|default('/status') }}" />
+      <button class="btn btn-secondary" type="submit">Cancel</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

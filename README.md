@@ -18,7 +18,7 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 - Stores stories in SQLite and drops unfavourited ones after 7 days
 - Serves a mobile-first web UI on the LAN (light, dark, or match the device)
 - Caches each publication’s icon when a source or saved article is added
-- Exposes an OPDS catalog for CrossPoint, plus JSON / TXT / EPUB briefing downloads
+- Exposes an OPDS catalog for CrossPoint, plus JSON / TXT / EPUB briefing downloads (EPUB/TXT freeze at the daily publish time)
 - Queues EPUB or PDF files as-is for the next reader sync (not summarised)
 
 ## Web UI
@@ -28,11 +28,11 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Briefing** | Today or Yesterday, category filters, a star to keep a story past expiry, and a bookmark to save it as a long-read |
 | **Saved** | Paste a one-off article URL. NewsCast scrapes the full text, keeps it for 7 days or a date you pick, and includes it in the next briefing |
 | **Search** | Find stories, favourites, and Saved long-reads in the SQLite store |
-| **Send** | Upload an EPUB or PDF. Check the reader when you want, then push now or queue until it is on Wi-Fi |
+| **Send** | Upload an EPUB or PDF. Check the reader when you want, then push now or queue until it is on Wi-Fi. The pending queue lists briefing vs Send files and can cancel one |
 | **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate to English, and Add custom |
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
-| **Status** | Ingest health, last reader task, Check reader plus push controls, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
-| **Settings** | Tabs for Device (including colour palettes), Schedule, Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
+| **Status** | Ingest health, last reader task, Check reader plus push / publish controls, the pending file queue, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
+| **Settings** | Tabs for Device (including colour palettes), Schedule (refresh interval, story cap, and newspaper publish time), Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
 
 <p align="center">
   <img src="docs/screenshots/briefing.png" alt="Briefing" width="280" />
@@ -91,7 +91,7 @@ The reader talks to **one NewsCast at a time**. If you run a copy on the home Pi
 
 ### CrossPoint (OPDS)
 
-On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download today’s or yesterday’s briefing EPUB; CrossPoint caches it for offline. The catalog also lists files you queued on the Send tab.
+On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download today’s or yesterday’s **frozen** briefing EPUB (written at the publish time on Settings → Schedule); CrossPoint caches it for offline. Until today’s paper exists, today’s link falls back to yesterday. The catalog also lists files you queued on the Send tab.
 
 To push files while File Transfer is on, set the reader host on Settings → Reader (default `crosspoint.local`) and use **Push now** or **Queue for later** on Status or Send. If the reader is asleep, queued files wait and go when Wi-Fi is back (or on the next minute tick if “Push when the reader is on Wi-Fi” is on).
 

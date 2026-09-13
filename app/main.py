@@ -11,7 +11,7 @@ from app.config import BACKUPS_DIR, BRIEFING_DIR, DATA_DIR, FAVICON_DIR, LIBRARY
 from app.services.catalog import seed_recommended_feeds
 from app.services.categories import seed_builtin_categories
 from app.services.favicon import capture_missing_feeds, seed_bundled_favicons
-from app.services import reader_push, settings
+from app.services import briefing, reader_push, settings
 from app.services.ingest import run_ingest
 
 SCHEDULER_TICK_MINUTES = 1
@@ -24,6 +24,7 @@ def _scheduled_ingest() -> None:
     db = SessionLocal()
     try:
         run_ingest(db, force=False)
+        briefing.maybe_publish_daily_briefing(db)
         if settings.reader_push_enabled(db):
             reader_push.flush_pending(db)
     finally:
