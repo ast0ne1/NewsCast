@@ -89,6 +89,22 @@
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>
 
+  <div class="stack settings-panel" id="settings-panel-filters" role="tabpanel" data-settings-panel="filters" aria-labelledby="settings-tab-filters"{% if settings_tab != 'filters' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Keyword filters</h2>
+      <label>
+        Include words
+        <input type="text" name="keyword_include" value="{{ keyword_include }}" autocomplete="off" placeholder="climate, election" />
+      </label>
+      <label>
+        Exclude words
+        <input type="text" name="keyword_exclude" value="{{ keyword_exclude }}" autocomplete="off" placeholder="crypto, sport" />
+      </label>
+      <p class="hint">Comma-separated. Exclude wins. If include words are set, a story must match one of them. Each feed can add more words on Feeds. Favourites and Saved long-reads always stay.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
   <div class="stack settings-panel" id="settings-panel-llm" role="tabpanel" data-settings-panel="llm" aria-labelledby="settings-tab-llm"{% if settings_tab != 'llm' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Summaries</h2>
@@ -176,6 +192,19 @@
         <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
       </label>
       <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Access labels the briefing so you know which one you pulled.</p>
+      <label>
+        Reader host
+        <input type="text" name="reader_host" value="{{ reader_host }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="crosspoint.local" />
+      </label>
+      <label>
+        Upload folder
+        <input type="text" name="reader_upload_path" value="{{ reader_upload_path }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="/News" />
+      </label>
+      <label class="check">
+        <input type="checkbox" name="reader_push_when_online" value="1" {% if reader_push_when_online %}checked{% endif %} />
+        Push when the reader is on Wi-Fi
+      </label>
+      <p class="hint">NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>

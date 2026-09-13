@@ -47,6 +47,20 @@ def _ensure_schema() -> None:
         if "translate" not in feed_cols:
             conn.execute(text("ALTER TABLE feeds ADD COLUMN translate BOOLEAN DEFAULT 0"))
             conn.execute(text("UPDATE feeds SET translate = 0 WHERE translate IS NULL"))
+        if "muted_until" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN muted_until DATETIME"))
+        if "keyword_include" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN keyword_include TEXT DEFAULT ''"))
+            conn.execute(text("UPDATE feeds SET keyword_include = '' WHERE keyword_include IS NULL"))
+        if "keyword_exclude" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN keyword_exclude TEXT DEFAULT ''"))
+            conn.execute(text("UPDATE feeds SET keyword_exclude = '' WHERE keyword_exclude IS NULL"))
+        if "last_status_code" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN last_status_code INTEGER"))
+        if "last_item_count" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN last_item_count INTEGER"))
+        if "empty_since" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN empty_since DATETIME"))
         story_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(stories)")).fetchall()}
         if "favourited" not in story_cols:
             conn.execute(text("ALTER TABLE stories ADD COLUMN favourited BOOLEAN DEFAULT 0"))
@@ -56,6 +70,10 @@ def _ensure_schema() -> None:
             conn.execute(text("UPDATE stories SET saved = 0 WHERE saved IS NULL"))
         if "expires_at" not in story_cols:
             conn.execute(text("ALTER TABLE stories ADD COLUMN expires_at DATETIME"))
+        task_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(sync_tasks)")).fetchall()}
+        if "kind" not in task_cols:
+            conn.execute(text("ALTER TABLE sync_tasks ADD COLUMN kind VARCHAR(20) DEFAULT 'x3'"))
+            conn.execute(text("UPDATE sync_tasks SET kind = 'x3' WHERE kind IS NULL OR kind = ''"))
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_filter_icon.html" import filter_chip %}
+{% from "_filter_icon.html" import filter_chip, filter_icon %}
 {% block title %}Briefing · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -15,16 +15,22 @@
 </section>
 
 <div data-filter-root data-briefing-list>
+  <div class="chips">
+    <a class="chip-btn{% if briefing_day == 'today' %} is-active{% endif %}" href="/">{{ filter_icon("today") }}<span>Today</span></a>
+    <a class="chip-btn{% if briefing_day == 'yesterday' %} is-active{% endif %}" href="/?day=yesterday">{{ filter_icon("yesterday") }}<span>Yesterday</span></a>
+  </div>
   {% if stories %}
-    <div class="chips" data-chip-group>
-      {{ filter_chip("all", "All", true) }}
-      {{ filter_chip("favourites", "Favourites") }}
-      {% for key, label in category_labels.items() %}
-        {% if stories | selectattr('category', 'equalto', key) | list %}
-        {{ filter_chip(key, label) }}
-        {% endif %}
-      {% endfor %}
-    </div>
+  <div class="chips" data-chip-group>
+    {{ filter_chip("all", "All", true) }}
+    {{ filter_chip("favourites", "Favourites") }}
+    {% for key, label in category_labels.items() %}
+      {% if stories | selectattr('category', 'equalto', key) | list %}
+      {{ filter_chip(key, label) }}
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if stories %}
     <ol class="story-list">
       {% for story in stories %}
       <li class="card story-card" data-category="{{ story.category }}" data-favourited="{{ '1' if story.favourited else '0' }}">
@@ -35,11 +41,20 @@
           {% if when %}
           <time class="chip chip-quiet story-date" datetime="{{ when.isoformat() }}">{{ when.strftime('%d %b %Y') }}</time>
           {% endif %}
-          <form method="post" action="/stories/{{ story.id }}/favourite" class="fav-form">
-            <button class="fav-btn {% if story.favourited %}is-on{% endif %}" type="submit" aria-pressed="{{ 'true' if story.favourited else 'false' }}" aria-label="{{ 'Remove from favourites' if story.favourited else 'Favourite this story' }}" title="{{ 'Remove from favourites' if story.favourited else 'Keep this story' }}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6 14.6 10h6.8l-5.5 4.2 2.1 6.6L12 16.8 6 20.8l2.1-6.6L2.6 10h6.8z"/></svg>
-            </button>
-          </form>
+          <div class="story-actions">
+            <form method="post" action="/stories/{{ story.id }}/longread" class="fav-form">
+              <input type="hidden" name="day" value="{{ briefing_day }}" />
+              <button class="fav-btn {% if story.saved %}is-on{% endif %}" type="submit" aria-pressed="{{ 'true' if story.saved else 'false' }}" aria-label="{{ 'Already a long-read' if story.saved else 'Save as a long-read' }}" title="{{ 'On Saved' if story.saved else 'Save as a long-read' }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v17l-6-3.4L6 21z"/></svg>
+              </button>
+            </form>
+            <form method="post" action="/stories/{{ story.id }}/favourite" class="fav-form">
+              <input type="hidden" name="day" value="{{ briefing_day }}" />
+              <button class="fav-btn {% if story.favourited %}is-on{% endif %}" type="submit" aria-pressed="{{ 'true' if story.favourited else 'false' }}" aria-label="{{ 'Remove from favourites' if story.favourited else 'Favourite this story' }}" title="{{ 'Remove from favourites' if story.favourited else 'Keep this story' }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6 14.6 10h6.8l-5.5 4.2 2.1 6.6L12 16.8 6 20.8l2.1-6.6L2.6 10h6.8z"/></svg>
+              </button>
+            </form>
+          </div>
         </div>
         <h2>{{ story.title }}</h2>
         <p class="summary">{{ story.summary }}</p>
@@ -53,8 +68,8 @@
     </div>
   {% else %}
     <div class="empty card">
-      <h2>Nothing in the briefing yet</h2>
-      <p>Tap Refresh to pull your enabled feeds. Four recommended sources are already on.</p>
+      <h2>{% if briefing_day == 'yesterday' %}Nothing from yesterday{% else %}Nothing in the briefing yet{% endif %}</h2>
+      <p>{% if briefing_day == 'yesterday' %}Try Today, or tap Refresh to pull your enabled feeds.{% else %}Tap Refresh to pull your enabled feeds. Four recommended sources are already on.{% endif %}</p>
     </div>
   {% endif %}
 </div>

@@ -399,7 +399,7 @@ document.querySelectorAll("[data-chip-group]").forEach((group) => {
 
 const settingsRoot = document.querySelector("[data-settings-tabs]");
 if (settingsRoot) {
-  const SETTINGS_SAVE_TABS = new Set(["access", "schedule", "llm", "reader", "update"]);
+  const SETTINGS_SAVE_TABS = new Set(["access", "schedule", "filters", "llm", "reader", "update"]);
   const settingsForm = settingsRoot.querySelector("[data-settings]");
   const settingsLede = document.querySelector("[data-settings-lede]");
   const settingsTabField = settingsRoot.querySelector("[data-settings-tab-field]");

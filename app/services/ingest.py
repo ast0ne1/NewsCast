@@ -17,7 +17,9 @@ from app.db import SessionLocal
 from app.models import Feed, Story, utcnow
 from app.services import briefing, settings
 from app.services.dedupe import canonicalize_url, cluster_key, content_hash, is_duplicate_title
-from app.services.schedule import feed_is_due
+from app.services.filters import feed_keyword_lists, story_passes_filters
+from app.services.health import record_fetch
+from app.services.schedule import feed_is_due, feed_is_muted
 from app.services.scrape import (
     article_candidates,
     discover_rss,
@@ -78,13 +80,21 @@ def _http_headers(accept: str) -> dict[str, str]:
     }
 
 
-def _http_get(url: str, *, accept: str | None = None, timeout: httpx.Timeout | None = None) -> str:
+def _http_get(
+    url: str,
+    *,
+    accept: str | None = None,
+    timeout: httpx.Timeout | None = None,
+    status_out: list[int] | None = None,
+) -> str:
     with httpx.Client(
         timeout=timeout or HTTP_TIMEOUT,
         follow_redirects=True,
         headers=_http_headers(accept or RSS_ACCEPT),
     ) as client:
         response = client.get(url)
+        if status_out is not None:
+            status_out.append(response.status_code)
         response.raise_for_status()
         return response.text
 
@@ -175,48 +185,61 @@ def _items_from_scrape(page_url: str, page_html: str, feed: Feed) -> list[dict]:
     return items
 
 
-def _try_rss_url(url: str, feed: Feed) -> list[dict]:
+def _try_rss_url(url: str, feed: Feed, status_out: list[int] | None = None) -> list[dict]:
     try:
-        return _items_from_parsed(feedparser.parse(_http_get(url)), feed)
+        return _items_from_parsed(feedparser.parse(_http_get(url, status_out=status_out)), feed)
+    except httpx.HTTPStatusError as exc:
+        if status_out is not None:
+            status_out.append(exc.response.status_code)
+        logger.debug("rss fetch failed for %s (%s): %s", feed.name, url, exc)
+        return []
     except Exception as exc:  # noqa: BLE001
         logger.debug("rss fetch failed for %s (%s): %s", feed.name, url, exc)
         return []
 
 
-def _collect_feed_items(feed: Feed) -> list[dict]:
+def _collect_feed_items(feed: Feed) -> tuple[list[dict], int | None]:
+    status_out: list[int] = []
     mode = (feed.type or "auto").lower()
     if mode == "rss" or looks_like_feed_url(feed.url):
-        direct = _try_rss_url(feed.url, feed)
+        direct = _try_rss_url(feed.url, feed, status_out)
         if direct:
-            return direct
+            return direct, status_out[-1] if status_out else 200
         if mode == "rss":
             raise RuntimeError("No RSS entries found")
     if mode in {"auto", "webpage"}:
         for guessed in guess_feed_urls(feed.url):
-            found = _try_rss_url(guessed, feed)
+            found = _try_rss_url(guessed, feed, status_out)
             if found:
-                return found
+                return found, status_out[-1] if status_out else 200
     homepage_error = None
     body = ""
     try:
-        body = _http_get(feed.url)
+        body = _http_get(feed.url, status_out=status_out)
     except Exception as exc:  # noqa: BLE001
         homepage_error = exc
     else:
         discovered = discover_rss(feed.url, body)
         if discovered and discovered.rstrip("/") != feed.url.rstrip("/"):
-            found = _try_rss_url(discovered, feed)
+            found = _try_rss_url(discovered, feed, status_out)
             if found:
-                return found
+                return found, status_out[-1] if status_out else 200
         scraped = _items_from_scrape(feed.url, body, feed)
         if scraped:
-            return scraped
+            return scraped, status_out[-1] if status_out else 200
         page_rss = _items_from_parsed(feedparser.parse(body), feed)
         if page_rss:
-            return page_rss
+            return page_rss, status_out[-1] if status_out else 200
     if homepage_error:
         raise homepage_error
     raise RuntimeError("No RSS entries or scrapeable articles found")
+
+
+def _unpack_collect(result) -> tuple[list[dict], int | None]:
+    if isinstance(result, tuple):
+        items, status = result
+        return list(items), status
+    return list(result), 200
 
 
 def _purge_old_stories(db: Session) -> None:
@@ -291,8 +314,11 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
             feeds = [feed]
         else:
             feeds = db.query(Feed).filter(Feed.enabled.is_(True)).all()
+            feeds = [feed for feed in feeds if not feed_is_muted(feed)]
             if not force:
                 feeds = [feed for feed in feeds if feed_is_due(feed, global_minutes)]
+        global_include = settings.get_value(db, "keyword_include")
+        global_exclude = settings.get_value(db, "keyword_exclude")
         if not feeds:
             state.last_message = "No enabled feeds due yet." if not force else "No enabled feeds."
             state.last_new_stories = 0
@@ -302,12 +328,14 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
         for feed in feeds:
             state.progress = feed.name
             try:
-                items = _collect_feed_items(feed)
+                items, status_code = _unpack_collect(_collect_feed_items(feed))
                 feed.last_fetched_at = utcnow()
                 feed.last_error = None
+                record_fetch(feed, status_code=status_code or 200, item_count=len(items))
                 extracts = 0
                 summarize_feed = bool(getattr(feed, "summarize", True))
                 translate_feed = bool(getattr(feed, "translate", False))
+                include, exclude = feed_keyword_lists(feed, global_include, global_exclude)
                 for item in items:
                     item["excerpt"] = _plain_text(item.get("excerpt") or "")
                     item["summarize"] = summarize_feed
@@ -330,6 +358,8 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                             logger.warning("translate failed for %s: %s", item["title"], exc)
                     item["content_hash"] = content_hash(item["title"], item["excerpt"])
                     item["cluster_key"] = cluster_key(item["title"])
+                    if not story_passes_filters(item["title"], item.get("excerpt") or "", "", include, exclude):
+                        continue
                     if _is_known(
                         item["title"],
                         item["published_at"],
@@ -344,8 +374,16 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                     urls.add(item["url"])
                     hashes.add(item["content_hash"])
                     titles.append((item["title"], item["published_at"]))
+            except httpx.HTTPStatusError as exc:
+                feed.last_error = str(exc)[:500]
+                record_fetch(feed, status_code=exc.response.status_code, item_count=0)
+                logger.warning("feed %s failed: %s", feed.name, exc)
             except Exception as exc:  # noqa: BLE001
                 feed.last_error = str(exc)[:500]
+                status = getattr(feed, "last_status_code", None)
+                if isinstance(exc, RuntimeError):
+                    status = status or 200
+                record_fetch(feed, status_code=status, item_count=0)
                 logger.warning("feed %s failed: %s", feed.name, exc)
             db.add(feed)
 

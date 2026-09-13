@@ -21,13 +21,14 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 
 | Tab | What it is for |
 | --- | --- |
-| **Briefing** | Today’s stories, category filters, and a star to keep a story past the 7-day expiry |
+| **Briefing** | Today or Yesterday, category filters, a star to keep a story past expiry, and a bookmark to save it as a long-read |
 | **Saved** | Paste a one-off article URL. NewsCast scrapes the full text, keeps it for 7 days or a date you pick, and includes it in the next briefing |
-| **Send** | Upload an EPUB or PDF. It goes to the reader on the next sync, without summarising |
-| **Feeds** | Your sources: Enabled / Disabled, Global vs Custom schedule, Summarise vs Full article, Translate to English, and Add custom |
+| **Search** | Find stories, favourites, and Saved long-reads in the SQLite store |
+| **Send** | Upload an EPUB or PDF. Push now or queue until the reader is on Wi-Fi |
+| **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate to English, and Add custom |
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
-| **Status** | Ingest health, last reader task, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
-| **Settings** | Tabs for Access (login, hostname, instance name), Schedule (refresh interval and briefing size), LLM (OpenAI or Ollama), Reader (catalog login), Categories, Backup/Restore, Update (GitHub Releases), and About |
+| **Status** | Ingest health, last reader task, CrossPoint online/asleep and push controls, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
+| **Settings** | Tabs for Access, Schedule, Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
 
 Refresh in the header fetches every enabled source now. A background tick every minute only fetches sources that are due. Sources set to Global follow the Settings interval; Custom sources keep their own.
 
@@ -75,7 +76,9 @@ The reader talks to **one NewsCast at a time**. If you run a copy on the home Pi
 
 ### CrossPoint (OPDS)
 
-On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download the briefing EPUB; CrossPoint caches it for offline. The catalog also lists files you queued on the Send tab.
+On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download today’s or yesterday’s briefing EPUB; CrossPoint caches it for offline. The catalog also lists files you queued on the Send tab.
+
+To push files while File Transfer is on, set the reader host on Settings → Reader (default `crosspoint.local`) and use **Push now** or **Queue for later** on Status or Send. If the reader is asleep, queued files wait and go when Wi-Fi is back (or on the next minute tick if “Push when the reader is on Wi-Fi” is on).
 
 Leave username and password blank unless you turn on catalog login in NewsCast Settings — asking the reader to log in can crash it.
 
@@ -84,7 +87,7 @@ If catalog login is on, set a catalog username and password on Settings. CrossPo
 | Path | What it serves |
 | --- | --- |
 | `GET /opds` | Navigation catalog (today’s briefing + Send library) |
-| `GET /opds/briefing` | Acquisition feed for the live EPUB |
+| `GET /opds/briefing` | Acquisition feed for today’s and yesterday’s EPUB |
 | `GET /opds/library` | Acquisition feed for queued EPUB and PDF files |
 | `GET /api/x3/news` | JSON briefing |
 | `GET /api/x3/news.txt` | Plain-text briefing |

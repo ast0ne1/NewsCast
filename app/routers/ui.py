@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Annotated
 from urllib.parse import urlparse
 
@@ -11,9 +12,18 @@ from app import __author__, __version__
 from app.auth import attach_session, clear_session, credentials_match, is_signed_in, require_admin, safe_next
 from app.config import ROOT_DIR, env
 from app.db import get_db
-from app.models import Feed, LibraryFile, Story, SyncTask
-from app.services import backup, favicon, hostname, library, qrcode, settings, update
-from app.services.briefing import current_saved_stories, current_stories, format_published
+from app.models import Feed, LibraryFile, Story, SyncTask, utcnow
+from app.services import backup, favicon, hostname, library, qrcode, reader_push, settings, update
+from app.services.briefing import (
+    briefing_path,
+    current_saved_stories,
+    current_stories,
+    format_published,
+    normalize_briefing_day,
+    search_stories,
+)
+from app.services.health import feed_health, feed_health_label
+from app.services.schedule import feed_is_muted
 from app.services import saved as saved_articles
 from app.services.catalog import catalog_with_status, grouped_catalog
 from app.services.categories import category_labels, list_categories
@@ -28,6 +38,7 @@ templates = Jinja2Templates(directory=str(ROOT_DIR / "app" / "templates"))
 SETTINGS_TABS = (
     ("access", "Access"),
     ("schedule", "Schedule"),
+    ("filters", "Filters"),
     ("llm", "LLM"),
     ("reader", "Reader"),
     ("categories", "Categories"),
@@ -36,12 +47,13 @@ SETTINGS_TABS = (
     ("about", "About"),
 )
 SETTINGS_TAB_KEYS = {key for key, _label in SETTINGS_TABS}
-SETTINGS_SAVE_TABS = {"access", "schedule", "llm", "reader", "update"}
+SETTINGS_SAVE_TABS = {"access", "schedule", "filters", "llm", "reader", "update"}
 SETTINGS_LEDES = {
     "access": "Admin login, hostname, and the Home or Work name for this copy.",
     "schedule": "How often sources refresh, and how many stories Briefing shows.",
+    "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
-    "reader": "Catalog login, sync token, and the device id the reader uses.",
+    "reader": "Catalog login, CrossPoint host, and push when the reader is on Wi-Fi.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
     "update": "Check GitHub Releases and install a newer zip.",
@@ -161,8 +173,9 @@ def logout_submit():
 
 
 @router.get("/")
-def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)]):
-    stories = [story for story in current_stories(db) if not story.saved]
+def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)], day: str = "today"):
+    briefing_day = normalize_briefing_day(day)
+    stories = [story for story in current_stories(db, day=briefing_day) if not story.saved]
     categories = _story_categories(db)
     icons = favicon.map_for_feeds(db.query(Feed).all())
     icons.update(favicon.map_for_stories(stories))
@@ -184,17 +197,24 @@ def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "stories": stories,
             "category_labels": category_labels(db),
             "retention_days": env.story_retention_days,
+            "briefing_day": briefing_day,
         },
     )
 
 
 @router.post("/stories/{story_id}/favourite")
-def toggle_favourite(story_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+def toggle_favourite(
+    story_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    day: Annotated[str, Form()] = "today",
+):
     story = db.get(Story, story_id)
+    nxt = briefing_path(day)
     if story is None:
         if _wants_json(request):
             return JSONResponse({"ok": False, "message": "Story not found."}, status_code=404)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(nxt, status_code=303)
     story.favourited = not bool(story.favourited)
     db.commit()
     if _wants_json(request):
@@ -205,7 +225,59 @@ def toggle_favourite(story_id: int, request: Request, db: Annotated[Session, Dep
                 "message": "Saved to favourites." if story.favourited else "Removed from favourites.",
             }
         )
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(nxt, status_code=303)
+
+
+@router.post("/stories/{story_id}/longread")
+def save_story_longread(
+    story_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    day: Annotated[str, Form()] = "today",
+):
+    story = db.get(Story, story_id)
+    nxt = briefing_path(day)
+    if story is None:
+        return _form_error(request, "Story not found.", nxt, 404)
+    if story.saved:
+        if _wants_json(request):
+            return JSONResponse({"ok": True, "saved": True, "message": "Already on Saved."})
+        return RedirectResponse("/saved", status_code=303)
+    try:
+        saved_articles.save_article(db, story.canonical_url, "7", "")
+    except ValueError as exc:
+        return _form_error(request, str(exc), nxt)
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "saved": True, "message": "Saved as a long-read."})
+    return RedirectResponse("/saved", status_code=303)
+
+
+@router.get("/search")
+def search_page(request: Request, db: Annotated[Session, Depends(get_db)], q: str = ""):
+    query = (q or "").strip()
+    stories = search_stories(db, query) if query else []
+    categories = _story_categories(db)
+    icons = favicon.map_for_feeds(db.query(Feed).all())
+    icons.update(favicon.map_for_stories(stories))
+    for story in stories:
+        story.category = categories.get(story.source_name, "news")
+        story.published_label = format_published(story.published_at or story.created_at)
+        story.favicon = favicon.lookup(
+            icons,
+            story.source_name,
+            story.canonical_url,
+            favicon.host_key(story.canonical_url),
+            favicon.host_key(favicon.homepage_url(story.canonical_url)),
+        )
+    return templates.TemplateResponse(
+        request,
+        "search.html",
+        {
+            **_base_context(request, db, "search"),
+            "query": query,
+            "stories": stories,
+        },
+    )
 
 
 @router.get("/saved")
@@ -264,6 +336,11 @@ def delete_saved_article(story_id: int, request: Request, db: Annotated[Session,
 @router.get("/feeds")
 def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     feeds = db.query(Feed).order_by(Feed.enabled.desc(), Feed.name.asc()).all()
+    now = utcnow()
+    for feed in feeds:
+        feed.is_muted = feed_is_muted(feed, now)
+        feed.health = feed_health(feed, now)
+        feed.health_label = feed_health_label(feed, now)
     return templates.TemplateResponse(
         request,
         "feeds.html",
@@ -300,6 +377,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     story_count = db.query(Story).count()
     last_task = db.query(SyncTask).order_by(SyncTask.created_at.desc()).first()
     share_url = hostname.get_share_url(db)
+    reader = reader_push.snapshot(db)
     return templates.TemplateResponse(
         request,
         "status.html",
@@ -307,6 +385,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             **_base_context(request, db, "status"),
             "story_count": story_count,
             "last_task": last_task,
+            "reader": reader,
             "public_base_url": hostname.get_public_base_url(db),
             "share_url": share_url,
             "lan_url": hostname.get_lan_url(),
@@ -329,6 +408,7 @@ def library_page(request: Request, db: Annotated[Session, Depends(get_db)]):
         {
             **_base_context(request, db, "library"),
             "library_files": _library_items(db),
+            "reader": reader_push.snapshot(db),
         },
     )
 
@@ -369,6 +449,11 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "update_check": update.last_check(db),
             "categories": list_categories(db),
             "latest_backup": backup.latest_backup(),
+            "keyword_include": settings.get_value(db, "keyword_include"),
+            "keyword_exclude": settings.get_value(db, "keyword_exclude"),
+            "reader_host": settings.get_value(db, "reader_host"),
+            "reader_upload_path": settings.get_value(db, "reader_upload_path"),
+            "reader_push_when_online": settings.reader_push_enabled(db),
         },
     )
 
@@ -402,6 +487,34 @@ def push_library_file(file_id: int, request: Request, db: Annotated[Session, Dep
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Queued for the next reader sync."})
     return RedirectResponse("/library", status_code=303)
+
+
+@router.post("/reader/push")
+def push_reader_now(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
+    nxt = safe_next(next)
+    if nxt not in {"/status", "/library"}:
+        nxt = "/status"
+    reader_push.enqueue_briefing_and_library(db)
+    result = reader_push.flush_pending(db)
+    if result.get("online"):
+        message = f"Pushed {result.get('uploaded', 0)} file{'s' if result.get('uploaded') != 1 else ''} to the reader."
+    else:
+        message = "Reader is asleep. Files are queued until it is on Wi-Fi."
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": message, **result})
+    return RedirectResponse(nxt, status_code=303)
+
+
+@router.post("/reader/queue")
+def queue_reader_later(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
+    nxt = safe_next(next)
+    if nxt not in {"/status", "/library"}:
+        nxt = "/status"
+    tasks = reader_push.enqueue_briefing_and_library(db)
+    message = f"Queued {len(tasks)} file{'s' if len(tasks) != 1 else ''} for when the reader is on Wi-Fi."
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": message, "pending": len(reader_push.pending_crosspoint(db))})
+    return RedirectResponse(nxt, status_code=303)
 
 
 @router.post("/library/{file_id}/delete")
@@ -494,6 +607,8 @@ def save_feed_schedule(
     interval_minutes: Annotated[str, Form()] = "",
     summarize: Annotated[str, Form()] = "1",
     translate: Annotated[str, Form()] = "0",
+    keyword_include: Annotated[str, Form()] = "",
+    keyword_exclude: Annotated[str, Form()] = "",
 ):
     feed = db.get(Feed, feed_id)
     if feed is None:
@@ -509,9 +624,35 @@ def save_feed_schedule(
             feed.interval_minutes = 60
     feed.summarize = summarize != "0"
     feed.translate = translate != "0"
+    feed.keyword_include = keyword_include.strip()
+    feed.keyword_exclude = keyword_exclude.strip()
     db.commit()
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Source settings saved."})
+    return RedirectResponse("/feeds", status_code=303)
+
+
+@router.post("/feeds/{feed_id}/mute")
+def mute_feed(feed_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+    feed = db.get(Feed, feed_id)
+    if feed is None:
+        return _form_error(request, "Feed not found.", "/feeds", 404)
+    feed.muted_until = utcnow() + timedelta(hours=24)
+    db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": f"Muted {feed.name} for 24 hours."})
+    return RedirectResponse("/feeds", status_code=303)
+
+
+@router.post("/feeds/{feed_id}/unmute")
+def unmute_feed(feed_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+    feed = db.get(Feed, feed_id)
+    if feed is None:
+        return _form_error(request, "Feed not found.", "/feeds", 404)
+    feed.muted_until = None
+    db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": f"Unmuted {feed.name}."})
     return RedirectResponse("/feeds", status_code=303)
 
 
@@ -585,6 +726,11 @@ def save_settings(
     ingest_interval_minutes: Annotated[str, Form()] = "",
     briefing_limit: Annotated[str, Form()] = "",
     github_repo: Annotated[str, Form()] = "",
+    keyword_include: Annotated[str, Form()] = "",
+    keyword_exclude: Annotated[str, Form()] = "",
+    reader_host: Annotated[str, Form()] = "",
+    reader_upload_path: Annotated[str, Form()] = "",
+    reader_push_when_online: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "access",
 ):
     tab = normalize_settings_tab(settings_tab)
@@ -644,6 +790,15 @@ def save_settings(
     else:
         settings.clear_value(db, "x3_catalog_username")
     settings.set_value(db, "x3_device_id", x3_device_id.strip())
+    settings.set_value(db, "keyword_include", keyword_include.strip())
+    settings.set_value(db, "keyword_exclude", keyword_exclude.strip())
+    host = reader_host.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
+    settings.set_value(db, "reader_host", host or "crosspoint.local")
+    folder = reader_upload_path.strip() or "/News"
+    if not folder.startswith("/"):
+        folder = "/" + folder
+    settings.set_value(db, "reader_upload_path", folder.rstrip("/") or "/News")
+    settings.set_value(db, "reader_push_when_online", "1" if reader_push_when_online else "0")
     wanted_host = hostname.normalize_hostname(device_hostname)
     if wanted_host:
         if not hostname.valid_hostname(wanted_host):

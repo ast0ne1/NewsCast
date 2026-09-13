@@ -34,6 +34,8 @@
           <span class="chip chip-quiet {% if feed.type == 'webpage' %}chip-scrape{% endif %}">{{ 'Scrape' if feed.type == 'webpage' else ('RSS' if feed.type == 'rss' else 'Auto') }}</span>
           <span class="chip chip-quiet">{{ 'Summarise' if feed.summarize != false else 'Full article' }}</span>
           {% if feed.translate %}<span class="chip chip-quiet">Translate</span>{% endif %}
+          <span class="chip chip-quiet chip-health chip-health-{{ feed.health }}">{{ feed.health_label }}</span>
+          {% if feed.is_muted %}<span class="chip chip-quiet">Muted until {{ feed.muted_until.strftime('%d %b %Y %H:%M') }} UTC</span>{% endif %}
         </p>
       </div>
       <div class="feed-actions">
@@ -47,6 +49,15 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 4v6h-6"/></svg>
           </button>
         </form>
+        {% if feed.is_muted %}
+        <form method="post" action="/feeds/{{ feed.id }}/unmute">
+          <button class="btn btn-secondary" type="submit">Unmute</button>
+        </form>
+        {% else %}
+        <form method="post" action="/feeds/{{ feed.id }}/mute">
+          <button class="btn btn-secondary" type="submit">Mute 24 hrs</button>
+        </form>
+        {% endif %}
         <form method="post" action="/feeds/{{ feed.id }}/delete" data-confirm="Remove {{ feed.name }}?" data-confirm-detail="Existing stories stay in the briefing until they expire." data-confirm-ok="Remove">
           <button class="icon-btn" type="submit" aria-label="Delete {{ feed.name }}" title="Remove feed">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
@@ -92,6 +103,14 @@
           <option value="0" {% if not feed.translate %}selected{% endif %}>As published</option>
           <option value="1" {% if feed.translate %}selected{% endif %}>Translate to English</option>
         </select>
+      </label>
+      <label class="schedule-span">
+        Include words
+        <input type="text" name="keyword_include" value="{{ feed.keyword_include or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
+      </label>
+      <label class="schedule-span">
+        Exclude words
+        <input type="text" name="keyword_exclude" value="{{ feed.keyword_exclude or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
       </label>
       <button class="btn btn-secondary" type="submit">Save</button>
     </form>

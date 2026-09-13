@@ -9,11 +9,60 @@ from sqlalchemy import delete, func, or_
 from sqlalchemy.orm import Session
 
 from app.config import BRIEFING_DIR, env
-from app.models import Story, SyncTask, utcnow
+from app.models import Feed, Story, SyncTask, utcnow
 from app.services import settings
+from app.services.filters import story_kept
 
 BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BRIEFING_STORIES = 20
+BRIEFING_DAYS = {"today", "yesterday", "all"}
+
+
+def normalize_briefing_day(value: str | None) -> str:
+    key = (value or "today").strip().lower()
+    return key if key in BRIEFING_DAYS else "today"
+
+
+def briefing_path(day: str | None = "today") -> str:
+    key = normalize_briefing_day(day)
+    return "/?day=yesterday" if key == "yesterday" else "/"
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _day_window(day: str, now: datetime | None = None) -> tuple[datetime, datetime] | None:
+    key = normalize_briefing_day(day)
+    if key == "all":
+        return None
+    when = now or utcnow()
+    target = when.astimezone(timezone.utc).date()
+    if key == "yesterday":
+        target = target - timedelta(days=1)
+    start = datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc)
+    return start, start + timedelta(days=1)
+
+
+def _in_day(story: Story, window: tuple[datetime, datetime] | None) -> bool:
+    if window is None:
+        return True
+    when = _aware(story.published_at or story.created_at)
+    if when is None:
+        return False
+    start, end = window
+    return start <= when < end
+
+
+def _apply_keyword_filters(db: Session, stories: list[Story]) -> list[Story]:
+    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+    include = settings.get_value(db, "keyword_include")
+    exclude = settings.get_value(db, "keyword_exclude")
+    return [story for story in stories if story_kept(story, feeds, include, exclude)]
 
 
 def retention_cutoff() -> datetime:
@@ -65,12 +114,14 @@ def _diverse_recent(stories: list[Story], limit: int) -> list[Story]:
     return picked
 
 
-def current_stories(db: Session, limit: int | None = None) -> list[Story]:
+def current_stories(db: Session, limit: int | None = None, day: str | None = None) -> list[Story]:
     if limit is None:
         limit = settings.briefing_limit(db)
     cutoff = retention_cutoff()
     age = _story_age()
-    saved = current_saved_stories(db)
+    window = _day_window(day) if day else None
+    include_saved = day != "yesterday"
+    saved = current_saved_stories(db) if include_saved else []
     favourites = (
         db.query(Story)
         .filter(Story.favourited.is_(True))
@@ -87,6 +138,8 @@ def current_stories(db: Session, limit: int | None = None) -> list[Story]:
         .limit(max(limit * 4, 40))
         .all()
     )
+    favourites = [story for story in favourites if _in_day(story, window)]
+    recent = [story for story in recent if _in_day(story, window)]
     recent = _diverse_recent(recent, limit)
     seen = {story.id for story in saved}
     stories = [*saved]
@@ -96,7 +149,46 @@ def current_stories(db: Session, limit: int | None = None) -> list[Story]:
             seen.add(story.id)
     feed_stories = [story for story in stories if not story.saved]
     feed_stories.sort(key=lambda story: story.published_at or story.created_at or cutoff, reverse=True)
-    return [*saved, *feed_stories]
+    return _apply_keyword_filters(db, [*saved, *feed_stories])
+
+
+def search_stories(db: Session, query: str, limit: int = 50) -> list[Story]:
+    term = (query or "").strip()
+    if not term:
+        return []
+    pattern = f"%{term}%"
+    cutoff = retention_cutoff()
+    age = _story_age()
+    rows = (
+        db.query(Story)
+        .filter(
+            or_(
+                Story.title.ilike(pattern),
+                Story.summary.ilike(pattern),
+                Story.source_name.ilike(pattern),
+                Story.raw_excerpt.ilike(pattern),
+            )
+        )
+        .filter(
+            or_(
+                Story.favourited.is_(True),
+                Story.saved.is_(True),
+                age >= cutoff,
+            )
+        )
+        .order_by(age.desc())
+        .limit(limit)
+        .all()
+    )
+    kept: list[Story] = []
+    now = utcnow()
+    for story in rows:
+        if story.saved and story.expires_at is not None:
+            expires = story.expires_at if story.expires_at.tzinfo else story.expires_at.replace(tzinfo=timezone.utc)
+            if expires < now and not story.favourited:
+                continue
+        kept.append(story)
+    return kept
 
 
 def purge_expired_stories(db: Session) -> int:
@@ -215,16 +307,17 @@ def write_epub(payload: dict, dest: Path) -> None:
     epub.write_epub(str(dest), book)
 
 
-def write_briefing_files(payload: dict) -> dict[str, Path]:
-    txt_path = BRIEFING_DIR / "news.txt"
-    epub_path = BRIEFING_DIR / "news.epub"
+def write_briefing_files(payload: dict, stem: str = "news") -> dict[str, Path]:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in stem).strip("-") or "news"
+    txt_path = BRIEFING_DIR / f"{safe}.txt"
+    epub_path = BRIEFING_DIR / f"{safe}.epub"
     txt_path.write_text(render_txt(payload), encoding="utf-8")
     write_epub(payload, epub_path)
     return {"txt": txt_path, "epub": epub_path}
 
 
-def current_briefing_payload(db: Session) -> dict:
-    return stories_payload(current_stories(db), settings.get_value(db, "instance_name"))
+def current_briefing_payload(db: Session, day: str | None = "today") -> dict:
+    return stories_payload(current_stories(db, day=day), settings.get_value(db, "instance_name"))
 
 
 def enqueue_latest_briefing(db: Session) -> SyncTask | None:
@@ -238,15 +331,16 @@ def enqueue_latest_briefing(db: Session) -> SyncTask | None:
     return enqueue_sync_file(db, path, save_name)
 
 
-def enqueue_sync_file(db: Session, path: Path, save_name: str) -> SyncTask:
+def enqueue_sync_file(db: Session, path: Path, save_name: str, *, kind: str = "x3", save_path: str | None = None) -> SyncTask:
     device_id = settings.get_value(db, "x3_device_id") or env.x3_device_id or ""
-    save_path = env.x3_save_path.rstrip("/") + "/" + save_name
+    dest = save_path or (env.x3_save_path.rstrip("/") + "/" + save_name)
     task = SyncTask(
         task_id=uuid.uuid4().hex,
         device_id=device_id,
         status="pending",
+        kind=kind if kind in {"x3", "crosspoint"} else "x3",
         file_path=str(path),
-        save_path=save_path,
+        save_path=dest,
         size=path.stat().st_size,
     )
     db.add(task)

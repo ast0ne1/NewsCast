@@ -226,7 +226,7 @@ input, select {
   flex: 0 0 auto;
   z-index: 12;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 2px;
   padding: 8px var(--gutter) calc(10px + var(--safe-bottom));
   background: color-mix(in srgb, var(--card) 94%, transparent);
@@ -361,7 +361,12 @@ h2 { font-family: var(--serif); font-size: 1.35rem; }
 .story-date {
   font-variant-numeric: tabular-nums;
 }
-.fav-form { margin-left: auto; }
+.story-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+.fav-form { margin-left: 0; }
 .fav-btn {
   width: var(--tap);
   height: var(--tap);
@@ -595,6 +600,10 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 .feed-status.is-error { color: var(--error); }
+.chip-health-ok { color: var(--accent); }
+.chip-health-empty { color: var(--muted); }
+.chip-health-error { color: var(--error); }
+.send-push { margin: 0 0 16px; }
 .schedule-form {
   display: grid;
   gap: 10px;
@@ -618,6 +627,9 @@ select:focus-visible {
   .schedule-form .btn {
     grid-column: 1 / -1;
     justify-self: end;
+  }
+  .schedule-form .schedule-span {
+    grid-column: 1 / -1;
   }
 }
 

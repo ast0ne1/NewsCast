@@ -81,6 +81,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v17l-6-3.4L6 21z"/></svg>
           <span>Saved</span>
         </a>
+        <a href="/search" class="{% if active == 'search' %}is-active{% endif %}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+          <span>Search</span>
+        </a>
         <a href="/library" class="{% if active == 'library' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M5 19h14"/></svg>
           <span>Send</span>

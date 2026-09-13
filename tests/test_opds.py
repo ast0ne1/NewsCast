@@ -58,6 +58,7 @@ def test_briefing_feed_has_epub_acquisition(monkeypatch):
     assert 'type="application/epub+zip"' in xml
     assert 'rel="http://opds-spec.org/acquisition"' in xml
     assert "http://127.0.0.1:8080/api/x3/news.epub" in xml
+    assert "http://127.0.0.1:8080/api/x3/news.epub?day=yesterday" in xml
 
 
 def test_library_lists_uploaded_file(monkeypatch):

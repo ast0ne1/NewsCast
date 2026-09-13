@@ -164,7 +164,8 @@ Then in SSH, the install folder is still `~/Desktop/NewsCast-pi`.
 
 - **Feeds** and **Catalog** add news sources.
 - **Refresh** in the header pulls stories.
-- **Settings** is split into tabs: Access (hostname and instance name), Schedule, LLM (OpenAI or Ollama), Reader, Categories, Backup/Restore, Update (GitHub Releases), and About.
+- **Settings** is split into tabs: Access (hostname and instance name), Schedule, Filters, LLM (OpenAI or Ollama), Reader (including CrossPoint push), Categories, Backup/Restore, Update (GitHub Releases), and About.
+- **Search** finds stories, favourites, and Saved long-reads. Briefing has Today and Yesterday. Feeds can mute a source for 24 hours.
 - NewsCast starts by itself when the Pi is turned on.
 
 To see if it is running, in Terminal on the Pi:

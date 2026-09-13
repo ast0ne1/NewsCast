@@ -85,6 +85,11 @@ UI_KEYS = (
     "briefing_limit",
     "device_hostname",
     "github_repo",
+    "keyword_include",
+    "keyword_exclude",
+    "reader_host",
+    "reader_upload_path",
+    "reader_push_when_online",
 )
 
 
@@ -130,6 +135,12 @@ def _default_value(key: str) -> str:
         return "60"
     if key == "briefing_limit":
         return str(DEFAULT_BRIEFING_LIMIT)
+    if key == "reader_host":
+        return "crosspoint.local"
+    if key == "reader_upload_path":
+        return "/News"
+    if key == "reader_push_when_online":
+        return "0"
     return ""
 
 
@@ -197,8 +208,16 @@ def secret_hint(db: Session, key: str) -> dict:
     }
 
 
+def flag_enabled(db: Session, key: str) -> bool:
+    return get_value(db, key).strip().lower() in {"1", "true", "on", "yes"}
+
+
 def catalog_login_enabled(db: Session) -> bool:
-    return get_value(db, "x3_catalog_login").strip().lower() in {"1", "true", "on", "yes"}
+    return flag_enabled(db, "x3_catalog_login")
+
+
+def reader_push_enabled(db: Session) -> bool:
+    return flag_enabled(db, "reader_push_when_online")
 
 
 def catalog_username(db: Session) -> str:

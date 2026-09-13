@@ -30,6 +30,14 @@
   <rect x="6" y="11" width="12" height="9" rx="2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>
   {%- elif name == "schedule" -%}
   <circle cx="12" cy="12" r="8"/><path d="M12 8v4.2L15 14"/>
+  {%- elif name == "filters" -%}
+  <path d="M4 6h16l-6.2 7.4V18l-3.6 2v-6.6z"/>
+  {%- elif name == "today" -%}
+  <circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>
+  {%- elif name == "yesterday" -%}
+  <path d="M16 13a6 6 0 1 1-5-8.9A7 7 0 1 0 16 13z"/>
+  {%- elif name == "search" -%}
+  <circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>
   {%- elif name == "llm" -%}
   <path d="M12 4v3M12 17v3M4 12h3M17 12h3M6.6 6.6l2.1 2.1M15.3 15.3l2.1 2.1M6.6 17.4l2.1-2.1M15.3 8.7l2.1-2.1"/><circle cx="12" cy="12" r="2.4"/>
   {%- elif name == "reader" -%}

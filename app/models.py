@@ -30,6 +30,12 @@ class Feed(Base):
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     favicon_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    muted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    keyword_include: Mapped[str] = mapped_column(Text, default="")
+    keyword_exclude: Mapped[str] = mapped_column(Text, default="")
+    last_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    empty_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Story(Base):
@@ -68,6 +74,7 @@ class SyncTask(Base):
     task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     device_id: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    kind: Mapped[str] = mapped_column(String(20), default="x3")
     file_path: Mapped[str] = mapped_column(String(500))
     save_path: Mapped[str] = mapped_column(String(500))
     size: Mapped[int] = mapped_column(Integer, default=0)

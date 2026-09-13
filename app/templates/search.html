@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Search · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Search</h1>
+  <p class="lede">Search titles, summaries, sources, and Saved long-reads in this copy’s SQLite store. Favourites stay searchable after they leave Briefing.</p>
+</section>
+
+<form method="get" action="/search" class="card panel saved-form search-form" data-native>
+  <div class="panel-form">
+    <label>
+      Find stories
+      <input type="search" name="q" value="{{ query }}" autocomplete="off" placeholder="keyword or outlet" />
+    </label>
+    <button class="btn btn-primary" type="submit">Search</button>
+  </div>
+</form>
+
+{% if query %}
+  {% if stories %}
+  <ol class="story-list">
+    {% for story in stories %}
+    <li class="card story-card">
+      <div class="story-kicker">
+        {% if story.favicon %}<img class="source-icon" src="{{ story.favicon }}" alt="" width="20" height="20">{% endif %}
+        <p class="chip chip-source">{{ story.source_name }}</p>
+        {% if story.saved %}<span class="chip chip-quiet">Saved</span>{% endif %}
+        {% if story.favourited %}<span class="chip chip-quiet">Favourite</span>{% endif %}
+        {% if story.published_label %}<time class="chip chip-quiet story-date">{{ story.published_label }}</time>{% endif %}
+      </div>
+      <h2>{{ story.title }}</h2>
+      <p class="summary">{{ story.summary }}</p>
+      <a class="text-link" href="{{ story.canonical_url }}" target="_blank" rel="noopener">Open original</a>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <div class="empty card">
+    <h2>No matches</h2>
+    <p>Nothing in the current store matched “{{ query }}”.</p>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

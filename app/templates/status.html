@@ -48,6 +48,26 @@
   <a class="text-link" href="/api/x3/news">{{ public_base_url }}/api/x3/news</a>
   <a class="text-link" href="/api/x3/news.txt">Download briefing.txt</a>
   <a class="text-link" href="/api/x3/news.epub">Download briefing.epub</a>
+  <a class="text-link" href="/api/x3/news.epub?day=yesterday">Download yesterday.epub</a>
+</div>
+
+<div class="card stack">
+  <h2>Push to reader</h2>
+  <p class="hint">
+    {{ reader.host }} is <strong>{{ 'online' if reader.online else 'asleep' }}</strong>.
+    {% if reader.pending %}{{ reader.pending }} file{{ 's' if reader.pending != 1 else '' }} waiting.{% else %}Nothing queued.{% endif %}
+    {% if reader.push_when_online %}NewsCast will push when the reader is on Wi-Fi.{% endif %}
+  </p>
+  <div class="btn-row">
+    <form method="post" action="/reader/push">
+      <input type="hidden" name="next" value="/status" />
+      <button class="btn btn-primary" type="submit">Push now</button>
+    </form>
+    <form method="post" action="/reader/queue">
+      <input type="hidden" name="next" value="/status" />
+      <button class="btn btn-secondary" type="submit">Queue for later</button>
+    </form>
+  </div>
 </div>
 
 <div class="card stack qr-card">

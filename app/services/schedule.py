@@ -26,3 +26,11 @@ def feed_is_due(feed: Feed, global_minutes: int, now: datetime | None = None) ->
         return True
     interval = timedelta(minutes=feed_interval_minutes(feed, global_minutes))
     return now - last >= interval
+
+
+def feed_is_muted(feed: Feed, now: datetime | None = None) -> bool:
+    until = _aware(getattr(feed, "muted_until", None))
+    if until is None:
+        return False
+    when = now or datetime.now(timezone.utc)
+    return when < until

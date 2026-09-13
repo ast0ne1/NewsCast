@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -114,6 +114,14 @@ def briefing_feed(db: Session) -> str:
     _text(entry, "title", title)
     _text(entry, "updated", updated)
     _link(entry, rel=ACQUISITION_REL, href=f"{base}/api/x3/news.epub", type_=EPUB_TYPE)
+
+    yesterday = when - timedelta(days=1)
+    y_title = briefing_entry_title(instance, yesterday)
+    y_entry = SubElement(feed, "entry")
+    _text(y_entry, "id", f"urn:newscast:briefing:{yesterday.date().isoformat()}")
+    _text(y_entry, "title", y_title)
+    _text(y_entry, "updated", atom_updated(yesterday))
+    _link(y_entry, rel=ACQUISITION_REL, href=f"{base}/api/x3/news.epub?day=yesterday", type_=EPUB_TYPE)
     return _xml(feed)
 
 
