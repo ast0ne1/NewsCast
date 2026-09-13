@@ -9,6 +9,7 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 - Status and Settings treat a GitHub release that matches this copy as up to date, so they no longer offer to install the version already running
 
 ### Added
+- README shows Briefing, Feeds, Catalog, Status, and Settings screenshots
 - Briefing chips switch Today and Yesterday; OPDS and `/api/x3/news.epub` can serve yesterday as well
 - Briefing bookmark saves a story as a Saved long-read beside the star
 - Feeds can mute a source for 24 hours, add include/exclude words, and show a Healthy / Empty / Error badge

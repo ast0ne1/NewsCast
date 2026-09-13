@@ -6,6 +6,10 @@ The intended reader path is **CrossPoint** over OPDS. A Sync-style API is still 
 
 Default login: **admin** / **admin** on the in-page sign-in screen. Change it on Settings after first launch.
 
+<p align="center">
+  <img src="docs/screenshots/briefing.png" alt="NewsCast Briefing tab with Today and Yesterday chips and story cards" width="720" />
+</p>
+
 ## What it does
 
 - Fetches RSS on a schedule, or scrapes a website when no usable RSS is found
@@ -29,6 +33,15 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
 | **Status** | Ingest health, last reader task, CrossPoint online/asleep and push controls, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
 | **Settings** | Tabs for Access, Schedule, Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
+
+<p>
+  <img src="docs/screenshots/feeds.png" alt="Feeds tab with source health, schedule, and keyword fields" width="360" />
+  <img src="docs/screenshots/catalog.png" alt="Catalog tab with recommended sources and Add controls" width="360" />
+</p>
+<p>
+  <img src="docs/screenshots/status.png" alt="Status tab with reader links and story count" width="360" />
+  <img src="docs/screenshots/settings.png" alt="Settings Access tab for login, hostname, and instance name" width="360" />
+</p>
 
 Refresh in the header fetches every enabled source now. A background tick every minute only fetches sources that are due. Sources set to Global follow the Settings interval; Custom sources keep their own.
 
