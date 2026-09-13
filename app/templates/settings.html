@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% from "_filter_icon.html" import filter_icon %}
+{% block title %}Settings · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Settings</h1>
+  <p class="lede" data-settings-lede>{{ settings_lede }}</p>
+</section>
+
+<div class="settings-tabs" data-settings-tabs>
+<div class="chips settings-chips" role="tablist" aria-label="Settings sections">
+  {% for key, label in settings_tabs %}
+  <a class="chip-btn{% if settings_tab == key %} is-active{% endif %}" href="/settings?tab={{ key }}" role="tab" id="settings-tab-{{ key }}" data-settings-tab="{{ key }}" data-settings-lede="{{ settings_ledes[key] }}" aria-selected="{{ 'true' if settings_tab == key else 'false' }}" aria-controls="settings-panel-{{ key }}">{{ filter_icon(key) }}<span>{{ label }}</span></a>
+  {% endfor %}
+</div>
+
+<form method="post" action="/settings" class="stack settings-form" data-settings autocomplete="off"{% if settings_tab not in settings_save_tabs %} hidden{% endif %}>
+  <input type="hidden" name="settings_tab" value="{{ settings_tab }}" data-settings-tab-field />
+
+  <div class="stack settings-panel" id="settings-panel-access" role="tabpanel" data-settings-panel="access" aria-labelledby="settings-tab-access"{% if settings_tab != 'access' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Admin access</h2>
+      <label>
+        Username
+        <input type="text" name="admin_username" value="{{ admin_username }}" autocomplete="off" />
+      </label>
+      <label>
+        Current password
+        <input type="password" name="current_password" autocomplete="current-password" />
+      </label>
+      <label>
+        New password
+        <input type="password" name="new_password" autocomplete="new-password" />
+      </label>
+      <label>
+        Confirm new password
+        <input type="password" name="new_password_confirm" autocomplete="new-password" />
+      </label>
+    </div>
+
+    <div class="card stack">
+      <h2>Device</h2>
+      <label>
+        Hostname
+        <input type="text" name="device_hostname" value="{{ device_hostname }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="newscast" />
+      </label>
+      <p class="hint">
+        {% if device_hostname %}
+          LAN address is <strong>http://{{ device_hostname }}.local:{{ app_port }}</strong>.
+        {% else %}
+          Optional. On a Pi this is also the device name, so you can open <strong>http://name.local:{{ app_port }}</strong> instead of the IP.
+        {% endif %}
+      </p>
+      <label>
+        Instance name
+        <input type="text" name="instance_name" value="{{ instance_name }}" autocomplete="off" placeholder="Home or Work" />
+      </label>
+      <p class="hint">Shown on the reader briefing so you can tell this copy from another. The reader talks to one NewsCast at a time — point it at this machine’s URL, or at your other copy.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-schedule" role="tabpanel" data-settings-panel="schedule" aria-labelledby="settings-tab-schedule"{% if settings_tab != 'schedule' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Refresh schedule</h2>
+      <label>
+        Global interval
+        <select name="ingest_interval_minutes">
+          {% for value, label in refresh_intervals %}
+          <option value="{{ value }}" {% if global_interval == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Sources set to Global use this. Custom sources keep their own interval. Refresh now still fetches every enabled source.</p>
+    </div>
+
+    <div class="card stack">
+      <h2>Briefing</h2>
+      <label>
+        Stories on Briefing
+        <select name="briefing_limit">
+          {% for value, label in briefing_limits %}
+          <option value="{{ value }}" {% if briefing_limit == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">The Briefing tab and the reader briefing use this cap. Sources are still mixed so one feed does not take every slot.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-llm" role="tabpanel" data-settings-panel="llm" aria-labelledby="settings-tab-llm"{% if settings_tab != 'llm' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Summaries</h2>
+      <label>
+        Provider
+        <select name="llm_provider" data-llm-provider>
+          <option value="openai" {% if llm_provider == 'openai' %}selected{% endif %}>OpenAI — default for the Pi</option>
+          <option value="ollama" {% if llm_provider == 'ollama' %}selected{% endif %}>Ollama — local model</option>
+        </select>
+      </label>
+      <p class="hint">OpenAI is the usual choice on a Pi. Use Ollama when this copy of NewsCast can reach a local model on the same machine or LAN.</p>
+      <div class="provider-panel" data-provider-panel="openai" {% if llm_provider != 'openai' %}hidden{% endif %}>
+        <label>
+          OpenAI API key
+          <input type="password" name="openai_api_key" autocomplete="off" placeholder="{{ openai_key.hint or 'Not set' }}" />
+        </label>
+        <p class="hint">
+          {% if openai_key.set %}Saved from {{ openai_key.source }} ({{ openai_key.hint }}). Leave blank to keep.{% else %}Not set.{% endif %}
+        </p>
+        <label class="check">
+          <input type="checkbox" name="clear_openai_api_key" value="1" />
+          Clear saved OpenAI key
+        </label>
+        <label>
+          OpenAI model
+          <select name="openai_model" data-model-select>
+            {% for value, label in openai_models %}
+            <option value="{{ value }}" {% if openai_model == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+            <option value="other" {% if not openai_model_known %}selected{% endif %}>Other…</option>
+          </select>
+        </label>
+        <label data-model-custom {% if openai_model_known %}hidden{% endif %}>
+          Custom model id
+          <input type="text" name="openai_model_custom" value="{{ '' if openai_model_known else openai_model }}" autocomplete="off" placeholder="gpt-…" />
+        </label>
+      </div>
+      <div class="provider-panel" data-provider-panel="ollama" {% if llm_provider != 'ollama' %}hidden{% endif %}>
+        <label>
+          Ollama URL
+          <input type="url" name="ollama_base_url" value="{{ ollama_base_url }}" autocomplete="off" inputmode="url" placeholder="http://127.0.0.1:11434" />
+        </label>
+        <p class="hint">Default is this machine. If Ollama runs on another PC, use that LAN address, for example <strong>http://192.168.1.20:11434</strong>.</p>
+        <label>
+          Ollama model
+          <input type="text" name="ollama_model" value="{{ ollama_model }}" autocomplete="off" data-ollama-model placeholder="llama3.2" />
+        </label>
+        <label data-ollama-pick hidden>
+          Installed models
+          <select data-ollama-select>
+            <option value="">Choose…</option>
+          </select>
+        </label>
+        <button class="btn btn-secondary" type="button" data-load-ollama>Load from Ollama</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-reader" role="tabpanel" data-settings-panel="reader" aria-labelledby="settings-tab-reader"{% if settings_tab != 'reader' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Reader</h2>
+      <label class="check">
+        <input type="checkbox" name="x3_catalog_login" value="1" {% if x3_catalog_login %}checked{% endif %} />
+        Require username and password on the reader
+      </label>
+      <p class="hint">Leave this off. CrossPoint can crash if the catalog asks the reader to log in. The catalog stays open on your LAN.</p>
+      <label>
+        Catalog username
+        <input type="text" name="x3_catalog_username" value="{{ x3_catalog_username }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="newscast" />
+      </label>
+      <label>
+        Catalog password
+        <input type="password" name="x3_sync_token" autocomplete="off" placeholder="{{ x3_token.hint or 'Choose a password' }}" />
+      </label>
+      <p class="hint">
+        {% if x3_token.set %}Password saved from {{ x3_token.source }} ({{ x3_token.hint }}). Leave blank to keep it.{% else %}Used when catalog login is on. Also the token for the reader download URLs.{% endif %}
+      </p>
+      <label class="check">
+        <input type="checkbox" name="clear_x3_sync_token" value="1" />
+        Clear saved catalog password
+      </label>
+      <label>
+        Device id
+        <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
+      </label>
+      <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Access labels the briefing so you know which one you pulled.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-update-form" role="tabpanel" data-settings-panel="update" aria-labelledby="settings-tab-update"{% if settings_tab != 'update' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Updates</h2>
+      <label>
+        GitHub repository
+        <input type="text" name="github_repo" value="{{ github_repo }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="owner/NewsCast" />
+      </label>
+      <p class="hint">Used to check GitHub Releases. Leave blank until you publish the repo. Tags must match the app version, for example {{ app_version }}.</p>
+      <p class="hint">This copy is <strong>{{ app_version }}</strong>.
+        {% if update_check.newer %}
+          <strong>{{ update_check.tag }}</strong> is available.
+        {% elif update_check.message %}
+          {{ update_check.message }}
+        {% endif %}
+      </p>
+      {% if update_check.notes %}
+      <p class="hint update-notes">{{ update_check.notes[:1200] }}</p>
+      {% endif %}
+      <p class="hint">Save the repository, then use Check for updates below. Install validates the zip and makes a backup first. Code is replaced; your data folder and .env stay put.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+</form>
+
+<div class="stack settings-panel" id="settings-panel-backup" role="tabpanel" data-settings-panel="backup" aria-labelledby="settings-tab-backup"{% if settings_tab != 'backup' %} hidden{% endif %}>
+  <div class="card stack">
+    <h2>Backup/Restore</h2>
+    <p class="hint">A backup is a zip of the database, Send library, and .env. Restore replaces feeds, stories, and settings. The running app code is not changed.</p>
+    {% if latest_backup %}
+    <p class="hint">Last automatic backup: {{ latest_backup.name }}</p>
+    {% endif %}
+    <a class="btn btn-secondary" href="/settings/backup">Download backup</a>
+    <form class="backup-restore" method="post" action="/settings/backup/restore" data-confirm="Restore this backup?" data-confirm-detail="Feeds, stories, and settings will be replaced by the file you choose." data-confirm-ok="Restore">
+      <label>
+        Restore from file
+        <input type="file" name="file" accept=".zip,application/zip" required />
+      </label>
+      <button class="btn btn-secondary" type="submit">Restore backup</button>
+    </form>
+    <form method="post" action="/settings/updates/rollback" data-confirm="Roll back to the previous app?" data-confirm-detail="This puts the last-good app files back and restarts. Your data stay as they are." data-confirm-ok="Roll back">
+      <button class="btn btn-secondary" type="submit">Roll back last app</button>
+    </form>
+  </div>
+</div>
+
+<div class="stack settings-panel" id="settings-panel-update" role="tabpanel" data-settings-panel="update" aria-labelledby="settings-tab-update"{% if settings_tab != 'update' %} hidden{% endif %}>
+  <div class="card stack">
+    <h2>Check and install</h2>
+    <form method="post" action="/settings/updates/check">
+      <button class="btn btn-secondary" type="submit">Check for updates</button>
+    </form>
+    {% if update_check.newer and update_check.valid %}
+    <form method="post" action="/settings/updates/install" data-confirm="Install {{ update_check.tag }}?" data-confirm-detail="NewsCast will back up your data, then replace the app and restart." data-confirm-ok="Install">
+      <button class="btn btn-primary" type="submit">Install {{ update_check.tag }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="stack settings-panel" id="settings-panel-categories" role="tabpanel" data-settings-panel="categories" aria-labelledby="settings-tab-categories"{% if settings_tab != 'categories' %} hidden{% endif %}>
+  <div class="card stack">
+    <h2>Categories</h2>
+    <p class="hint">Add a country or topic, such as Romania, Architecture, or Marketing. Built-in groups stay. Removing a custom category moves its sources to World News.</p>
+    <ul class="category-edit-list">
+      {% for category in categories %}
+      <li class="category-edit">
+        <form method="post" action="/settings/categories/{{ category.key }}/rename" class="category-edit-form">
+          <label>
+            <span class="visually-hidden">Name for {{ category.key }}</span>
+            <input type="text" name="label" value="{{ category.label }}" required {% if category.builtin %}readonly{% endif %} />
+          </label>
+          {% if not category.builtin %}
+          <button class="btn btn-secondary" type="submit">Rename</button>
+          {% else %}
+          <span class="chip chip-quiet">Built-in</span>
+          {% endif %}
+        </form>
+        {% if not category.builtin %}
+        <form method="post" action="/settings/categories/{{ category.key }}/delete" data-confirm="Remove {{ category.label }}?" data-confirm-detail="Sources in this category move to World News." data-confirm-ok="Remove">
+          <button class="icon-btn" type="submit" aria-label="Remove {{ category.label }}" title="Remove category">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+          </button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <form method="post" action="/settings/categories" class="category-add">
+      <label>
+        New category
+        <input type="text" name="label" required autocomplete="off" placeholder="Marketing" />
+      </label>
+      <button class="btn btn-secondary" type="submit">Add category</button>
+    </form>
+  </div>
+</div>
+
+<div class="stack settings-panel" id="settings-panel-about" role="tabpanel" data-settings-panel="about" aria-labelledby="settings-tab-about"{% if settings_tab != 'about' %} hidden{% endif %}>
+  <div class="card stack about-card">
+    <h2>About</h2>
+    <p class="lede">NewsCast fetches the sources you choose, writes a short daily briefing, and sends it to an e-reader. It runs on a home Pi or a Windows machine on your LAN.</p>
+    <p class="hint">Author: {{ app_author or "Adam Stone" }}</p>
+    <p class="hint">Version: {{ app_version }}</p>
+  </div>
+</div>
+</div>
+{% endblock %}

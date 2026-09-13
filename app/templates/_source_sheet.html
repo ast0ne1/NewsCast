@@ -1,0 +1,51 @@
+<div class="sheet" hidden data-sheet>
+  <div class="sheet-card card">
+    <h2>Add a custom source</h2>
+    <p class="hint">Paste an RSS feed URL, or a website to scrape when there is no feed.</p>
+    <form method="post" action="/feeds" class="stack">
+      <input type="hidden" name="next" value="{{ source_next }}" />
+      <label>
+        Name
+        <input type="text" name="name" required autocomplete="off" />
+      </label>
+      <label>
+        Site or RSS URL
+        <input type="url" name="url" required inputmode="url" autocomplete="off" placeholder="https://" />
+      </label>
+      <label>
+        How to fetch
+        <select name="source_type">
+          <option value="auto">Auto (RSS if found, otherwise scrape)</option>
+          <option value="rss">RSS feed</option>
+          <option value="webpage">Website scrape</option>
+        </select>
+      </label>
+      <label>
+        Category
+        <select name="category">
+          {% for key, label in category_labels.items() %}
+          <option value="{{ key }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Article text
+        <select name="summarize">
+          <option value="1" selected>Summarise</option>
+          <option value="0">Full article</option>
+        </select>
+      </label>
+      <label>
+        Language
+        <select name="translate">
+          <option value="0" selected>As published</option>
+          <option value="1">Translate to English</option>
+        </select>
+      </label>
+      <div class="btn-row">
+        <button class="btn btn-primary" type="submit">Add source</button>
+        <button class="btn btn-ghost" type="button" data-close-sheet>Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>

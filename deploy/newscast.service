@@ -1,0 +1,17 @@
+[Unit]
+Description=NewsCast news aggregator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=newscast
+Group=newscast
+WorkingDirectory=/opt/newscast
+EnvironmentFile=/opt/newscast/.env
+ExecStart=/opt/newscast/deploy/run.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

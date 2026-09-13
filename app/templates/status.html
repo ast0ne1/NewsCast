@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Status · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Status</h1>
+  <p class="lede">
+    {% if ingest.running %}
+      Refreshing{% if ingest.progress %} {{ ingest.progress }}{% endif %}…
+    {% else %}
+      {{ ingest.last_message }}
+    {% endif %}
+    {% if update_check.newer %}
+      Update {{ update_check.tag }} is available. Check it on the <a href="/settings?tab=update">Update</a> tab.
+    {% endif %}
+  </p>
+</section>
+
+<ul class="stat-grid">
+  <li class="card stat">
+    <p class="stat-label">Stories stored</p>
+    <p class="stat-value">{{ story_count }}</p>
+  </li>
+  <li class="card stat">
+    <p class="stat-label">Last reader task</p>
+    <p class="stat-value">{{ last_task.status.replace('_', ' ')|capitalize if last_task else 'None' }}</p>
+  </li>
+</ul>
+
+<div class="card stack links-card">
+  <h2>Reader</h2>
+  {% if instance_name %}
+  <p class="hint">This copy is labelled <strong>{{ instance_name }}</strong> on the briefing.</p>
+  {% endif %}
+  <p class="hint">
+    On CrossPoint: Settings → System → OPDS Servers → add
+    <strong>{{ public_base_url }}/opds</strong>.
+    {% if x3_catalog_login and x3_token_set %}
+      This catalog asks for username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings. That login can crash some readers — turn it off on Settings if it does.
+    {% else %}
+      Leave username and password blank on the device. Catalog login is off so CrossPoint does not have to authenticate (that can crash the reader).
+    {% endif %}
+    Add each NewsCast copy as its own catalog (Work and Home) and switch catalog for the other briefing.
+    {% if public_base_url and public_base_url != request_base_url %}
+      This page is {{ request_base_url }}; catalog links use <strong>{{ public_base_url }}</strong>.
+    {% endif %}
+  </p>
+  <a class="text-link" href="/opds">{{ public_base_url }}/opds</a>
+  <a class="text-link" href="/api/x3/news">{{ public_base_url }}/api/x3/news</a>
+  <a class="text-link" href="/api/x3/news.txt">Download briefing.txt</a>
+  <a class="text-link" href="/api/x3/news.epub">Download briefing.epub</a>
+</div>
+
+<div class="card stack qr-card">
+  <h2>Open on this network</h2>
+  <p class="hint">Scan to open NewsCast on your phone. Same Wi‑Fi as this machine.</p>
+  <div class="qr-frame" aria-hidden="true">{{ qr_svg|safe }}</div>
+  <a class="text-link" href="{{ share_url }}">{{ share_url }}</a>
+  {% if lan_url and lan_url != share_url %}
+  <p class="hint">Or the LAN IP: <a class="text-link" href="{{ lan_url }}">{{ lan_url }}</a></p>
+  {% endif %}
+  <div class="homescreen-block">
+    <h3>Add to iPhone home screen</h3>
+    <p class="hint">Safari saves this copy as <strong>{{ homescreen_name or "NewsCast" }}</strong>.</p>
+    {% if not instance_name %}
+    <p class="hint">Set an instance name on Settings (Home or Work) so the shortcut is NewsCast Home or NewsCast Work.</p>
+    {% endif %}
+    <ol class="homescreen-steps">
+      <li>Open this address in Safari (scan the code).</li>
+      <li>Tap the Share button.</li>
+      <li>Tap <strong>Add to Home Screen</strong>.</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}

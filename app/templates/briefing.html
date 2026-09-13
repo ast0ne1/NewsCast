@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_filter_icon.html" import filter_chip %}
+{% block title %}Briefing · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Briefing</h1>
+  <p class="lede">
+    {% if ingest.last_finished_at %}
+      Last refresh {{ ingest.last_finished_at.replace('T', ' ')[:16] }} UTC.
+    {% else %}
+      Stories appear here after the first refresh.
+    {% endif %}
+    Stories drop off after {{ retention_days }} days unless you favourite them.
+  </p>
+</section>
+
+<div data-filter-root data-briefing-list>
+  {% if stories %}
+    <div class="chips" data-chip-group>
+      {{ filter_chip("all", "All", true) }}
+      {{ filter_chip("favourites", "Favourites") }}
+      {% for key, label in category_labels.items() %}
+        {% if stories | selectattr('category', 'equalto', key) | list %}
+        {{ filter_chip(key, label) }}
+        {% endif %}
+      {% endfor %}
+    </div>
+    <ol class="story-list">
+      {% for story in stories %}
+      <li class="card story-card" data-category="{{ story.category }}" data-favourited="{{ '1' if story.favourited else '0' }}">
+        <div class="story-kicker">
+          {% if story.favicon %}<img class="source-icon" src="{{ story.favicon }}" alt="" width="20" height="20">{% endif %}
+          <p class="chip chip-source">{{ story.source_name }}</p>
+          {% set when = story.published_at or story.created_at %}
+          {% if when %}
+          <time class="chip chip-quiet story-date" datetime="{{ when.isoformat() }}">{{ when.strftime('%d %b %Y') }}</time>
+          {% endif %}
+          <form method="post" action="/stories/{{ story.id }}/favourite" class="fav-form">
+            <button class="fav-btn {% if story.favourited %}is-on{% endif %}" type="submit" aria-pressed="{{ 'true' if story.favourited else 'false' }}" aria-label="{{ 'Remove from favourites' if story.favourited else 'Favourite this story' }}" title="{{ 'Remove from favourites' if story.favourited else 'Keep this story' }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6 14.6 10h6.8l-5.5 4.2 2.1 6.6L12 16.8 6 20.8l2.1-6.6L2.6 10h6.8z"/></svg>
+            </button>
+          </form>
+        </div>
+        <h2>{{ story.title }}</h2>
+        <p class="summary">{{ story.summary }}</p>
+        <a class="text-link" href="{{ story.canonical_url }}" target="_blank" rel="noopener">Open original</a>
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="empty card" hidden data-filter-empty>
+      <h2>Nothing in this category</h2>
+      <p>Try another category, or leave the filter on All.</p>
+    </div>
+  {% else %}
+    <div class="empty card">
+      <h2>Nothing in the briefing yet</h2>
+      <p>Tap Refresh to pull your enabled feeds. Four recommended sources are already on.</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

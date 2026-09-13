@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% from "_filter_icon.html" import filter_chip %}
+{% block title %}Catalog · NewsCast{% endblock %}
+{% block content %}
+<section class="hero hero-row">
+  <div>
+    <h1>Catalog</h1>
+    <p class="lede">Browse this library and tap Add. Import a country or industry package, or export one of your categories as a JSON file to share. Nordic sources are translated to English before they reach the briefing. Use the plus button only for a source that is not listed.</p>
+  </div>
+  <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    <span>Add custom</span>
+  </button>
+</section>
+
+<div class="card stack package-toolbar">
+  <form method="post" action="/catalog/packages/import">
+    <label>
+      Import package
+      <input type="file" name="file" accept=".json,application/json" required />
+    </label>
+    <button class="btn btn-secondary" type="submit">Import</button>
+  </form>
+  <form method="get" action="/catalog/packages/export" data-native>
+    <label>
+      Export category
+      <select name="category" data-export-category>
+        {% for category in export_categories %}
+        <option value="{{ category.key }}">{{ category.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-secondary" type="submit">Export</button>
+  </form>
+</div>
+
+<div data-filter-root>
+<div class="chips-stack">
+<div class="chips" data-chip-group>
+  {{ filter_chip("all", "All", true) }}
+  {% for key, label in category_labels.items() %}
+    {{ filter_chip(key, label) }}
+  {% endfor %}
+</div>
+<div class="chips chips-secondary" data-chip-group data-filter-key="source">
+  {{ filter_chip("all", "All types", true) }}
+  {{ filter_chip("rss", "RSS") }}
+  {{ filter_chip("webpage", "Scrape") }}
+</div>
+</div>
+
+{% if custom_feeds %}
+<section class="catalog-group" data-filter-section>
+  <h2 class="section-label">Your sources</h2>
+  <ul class="catalog-grid">
+    {% for feed in custom_feeds %}
+    <li class="card catalog-card is-added" data-filter-item data-category="{{ feed.category }}" data-source="{{ 'webpage' if feed.type == 'webpage' else 'rss' }}">
+      <div class="catalog-top">
+        <h3 class="catalog-title">{% if favicons.get(feed.name) %}<img class="source-icon source-icon-lg" src="{{ favicons[feed.name] }}" alt="" width="20" height="20">{% endif %}{{ feed.name }}</h3>
+        <p class="catalog-action is-added">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          <span>Added</span>
+        </p>
+      </div>
+      <p class="catalog-meta">
+        <span class="chip chip-quiet">{{ category_labels.get(feed.category, feed.category) }}</span>
+        <span class="chip chip-quiet {% if feed.type == 'webpage' %}chip-scrape{% endif %}">{{ 'Scrape' if feed.type == 'webpage' else ('RSS' if feed.type == 'rss' else 'Auto') }}</span>
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% for category, items in catalog.items() %}
+<section class="catalog-group" data-filter-section data-category="{{ category }}">
+  <h2 class="section-label">{{ category_labels.get(category, category) }}</h2>
+  <ul class="catalog-grid">
+    {% for item in items %}
+    <li class="card catalog-card{% if item.added %} is-added{% endif %}" data-filter-item data-category="{{ category }}" data-source="{{ item.source_kind }}">
+      <div class="catalog-top">
+        <h3 class="catalog-title">{% if item.favicon %}<img class="source-icon source-icon-lg" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}{{ item.name }}</h3>
+        {% if item.added %}
+          <p class="catalog-action is-added">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>Added</span>
+          </p>
+        {% else %}
+          <form method="post" action="/catalog/{{ item.id }}/add">
+            <button class="catalog-action" type="submit" aria-label="Add {{ item.name }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Add</span>
+            </button>
+          </form>
+        {% endif %}
+      </div>
+      <p class="catalog-meta">
+        <span class="chip chip-quiet">{{ item.label }}</span>
+        <span class="chip chip-quiet {% if item.source_kind == 'webpage' %}chip-scrape{% endif %}">{{ item.source_label }}</span>
+        {% if item.translate %}<span class="chip chip-quiet">Translate</span>{% endif %}
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+<div class="empty card" hidden data-filter-empty>
+  <h2>Nothing in this filter</h2>
+  <p>Try another category or type, or add a custom RSS feed or website.</p>
+</div>
+</div>
+
+{% set source_next = "/catalog" %}
+{% include "_source_sheet.html" %}
+{% endblock %}

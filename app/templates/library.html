@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Send · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Send a file</h1>
+  <p class="lede">EPUB or PDF. Sent as-is on the next reader sync — not summarised.</p>
+</section>
+
+<form method="post" action="/library" class="card panel saved-form" enctype="multipart/form-data" data-busy-label="Queuing…">
+  <div class="panel-head">
+    <h2>Queue for reader</h2>
+    <p class="hint">This is a one-off file, not a feed. It stays here until you remove it.</p>
+  </div>
+  <div class="panel-form">
+    <p class="error-text" hidden data-form-error></p>
+    <label>
+      Title
+      <input type="text" name="title" autocomplete="off" placeholder="Optional" />
+    </label>
+    <label class="file-field">
+      File
+      <input type="file" name="file" accept=".epub,.pdf,application/epub+zip,application/pdf" required />
+    </label>
+    <button class="btn btn-primary" type="submit">Queue for reader</button>
+  </div>
+</form>
+
+{% if library_files %}
+<ul class="feed-list">
+  {% for item in library_files %}
+  <li class="card feed-row">
+    <div class="feed-copy">
+      <h2>{{ item.title }}</h2>
+      <p class="meta">{{ item.original_name }} · {{ item.size }}{% if item.created_at %} · {{ item.created_at }} UTC{% endif %}</p>
+    </div>
+    <form method="post" action="/library/{{ item.id }}/push">
+      <button class="btn btn-secondary" type="submit">Send again</button>
+    </form>
+    <form method="post" action="/library/{{ item.id }}/delete" data-confirm="Remove this file from the library?" data-confirm-detail="It will leave this tab and the next reader sync." data-confirm-ok="Remove">
+      <button class="icon-btn" type="submit" aria-label="Delete {{ item.title }}" title="Remove file">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+      </button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty card">
+  <h2>Nothing queued yet</h2>
+  <p>Choose an EPUB or PDF above. It goes to the reader on the next sync, without summarising.</p>
+</div>
+{% endif %}
+{% endblock %}

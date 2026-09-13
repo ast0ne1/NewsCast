@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Saved · NewsCast{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Saved</h1>
+  <p class="lede">Paste an article URL. NewsCast scrapes the full text for later reading on the reader. Items drop off after the expiry you set, or when you remove them.</p>
+</section>
+
+<form method="post" action="/saved" class="card panel saved-form" data-busy-label="Saving…">
+  <div class="panel-head">
+    <h2>Add article</h2>
+    <p class="hint">This is a one-off source, not a feed. It stays on this tab until you remove it or it expires.</p>
+  </div>
+  <div class="panel-form">
+    <p class="error-text" hidden data-form-error></p>
+    <label>
+      Article URL
+      <input type="text" name="url" required inputmode="url" autocomplete="url" placeholder="https://" />
+    </label>
+    <label>
+      Keep for
+      <select name="keep_days" data-keep-days>
+        {% for value, label in keep_options %}
+        <option value="{{ value }}" {% if value == 7 %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label data-custom-expiry hidden>
+      Remove after
+      <input type="date" name="custom_date" />
+    </label>
+    <button class="btn btn-primary" type="submit">Save article</button>
+  </div>
+</form>
+
+{% if items %}
+<ul class="story-list">
+  {% for item in items %}
+  <li class="card story-card saved-card">
+    <div class="story-kicker">
+      {% if item.favicon %}<img class="source-icon" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}
+      <p class="chip chip-source">{{ item.source_name }}</p>
+      <p class="chip chip-quiet">Full article</p>
+      {% if item.expires_at %}
+      <time class="chip chip-quiet story-date" datetime="{{ item.expires_at.isoformat() }}">Until {{ item.expires_at.strftime('%d %b %Y') }}</time>
+      {% endif %}
+    </div>
+    <h2>{{ item.title }}</h2>
+    <p class="summary">{% if item.summary|length > 280 %}{{ item.summary[:280] }}…{% else %}{{ item.summary }}{% endif %}</p>
+    <div class="btn-row">
+      <a class="text-link" href="{{ item.canonical_url }}" target="_blank" rel="noopener">Open original</a>
+      <form method="post" action="/saved/{{ item.id }}/delete" data-confirm="Remove this saved article?" data-confirm-detail="It will leave Saved and the next reader briefing." data-confirm-ok="Remove">
+        <button class="icon-btn" type="submit" aria-label="Remove {{ item.title }}" title="Remove">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+        </button>
+      </form>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty card">
+  <h2>Nothing saved yet</h2>
+  <p>Add a URL above. The full article is stored here and included in the next reader briefing.</p>
+</div>
+{% endif %}
+{% endblock %}
