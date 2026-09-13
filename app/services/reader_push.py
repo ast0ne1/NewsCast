@@ -14,6 +14,7 @@ from app.services.briefing import current_briefing_payload, enqueue_sync_file, w
 
 logger = logging.getLogger("newscast.reader_push")
 UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
+_last_probe: dict | None = None
 
 
 def reader_host(db: Session) -> str:
@@ -109,13 +110,33 @@ def flush_pending(db: Session) -> dict:
     return {"ok": True, "online": True, "uploaded": uploaded, "pending": pending, "host": host}
 
 
-def snapshot(db: Session) -> dict:
+def remember_probe(host: str, online: bool) -> None:
+    global _last_probe
+    _last_probe = {"host": host, "online": bool(online)}
+
+
+def last_probe(host: str) -> dict | None:
+    if _last_probe and _last_probe.get("host") == host:
+        return _last_probe
+    return None
+
+
+def snapshot(db: Session, *, probe: bool = True) -> dict:
     host = reader_host(db)
     pending = pending_crosspoint(db)
+    if probe:
+        online = reader_reachable(host, timeout=0.6)
+        remember_probe(host, online)
+        checked = True
+    else:
+        prev = last_probe(host)
+        online = None if prev is None else prev["online"]
+        checked = prev is not None
     return {
         "host": host,
         "upload_path": reader_upload_dir(db),
-        "online": reader_reachable(host, timeout=0.6),
+        "online": online,
+        "checked": checked,
         "pending": len(pending),
         "push_when_online": settings.reader_push_enabled(db),
     }

@@ -4,11 +4,9 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 
 ## 0.0.0.2 — 2026-09-13
 
-### Fixed
-- Installing a GitHub update on Windows no longer deletes the running `app` folder, which caused an internal server error after the backup
-- Status and Settings treat a GitHub release that matches this copy as up to date, so they no longer offer to install the version already running
-
 ### Added
+- Show-password icons on the new and confirm password fields on Settings Device
+- Colour palettes Default, Ocean, Forest, and Slate, each with the existing light / dark / Auto switch; picker is on Settings Device
 - README shows phone-width screenshots: sign-in, then Briefing, Saved, Search, Send, Feeds, Catalog, Status, and Settings
 - Briefing chips switch Today and Yesterday; OPDS and `/api/x3/news.epub` can serve yesterday as well
 - Briefing bookmark saves a story as a Saved long-read beside the star
@@ -16,6 +14,16 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 - Settings Filters tab holds global include/exclude words; each feed can add more
 - Search tab looks through briefing stories, favourites, and Saved long-reads with SQL LIKE
 - Status and Send can push the briefing and library to CrossPoint when it is on Wi-Fi, or queue files while the reader is asleep
+
+### Changed
+- Settings Access tab is now Device; the hostname card is labelled Network
+- Search uses the same panel head, form layout, and text-field styling as Saved and Send
+- Send and Status no longer ping the reader on load; use Check reader to see if it is online or asleep
+- Sign-in follows the saved palette and light / dark mode but no longer has switches to change them
+
+### Fixed
+- Installing a GitHub update on Windows no longer deletes the running `app` folder, which caused an internal server error after the backup
+- Status and Settings treat a GitHub release that matches this copy as up to date, so they no longer offer to install the version already running
 
 ## 0.0.0.1 — 2026-09-13
 

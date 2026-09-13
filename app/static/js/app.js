@@ -20,22 +20,39 @@ if (typeof ResizeObserver === "function") {
 }
 
 const THEME_KEY = "newscast-theme";
-const THEME_COLORS = { light: "#f3eee4", dark: "#12100d" };
+const PALETTE_KEY = "newscast-palette";
+const PALETTES = ["default", "ocean", "forest", "slate"];
+const THEME_COLORS = {
+  default: { light: "#f3eee4", dark: "#12100d" },
+  ocean: { light: "#e7eef5", dark: "#0c141c" },
+  forest: { light: "#eef1e6", dark: "#10140d" },
+  slate: { light: "#ececee", dark: "#121314" },
+};
 
 function resolvedTheme(pref) {
   if (pref === "light" || pref === "dark") return pref;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function applyTheme(pref) {
+function savedPalette() {
+  const value = localStorage.getItem(PALETTE_KEY) || "default";
+  return PALETTES.includes(value) ? value : "default";
+}
+
+function applyTheme(pref, palette) {
   const theme = resolvedTheme(pref);
+  const chosen = palette || savedPalette();
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.themePref = pref;
+  document.documentElement.dataset.palette = chosen;
   document.documentElement.style.colorScheme = theme;
   const meta = document.querySelector("[data-theme-color]");
-  if (meta) meta.setAttribute("content", THEME_COLORS[theme]);
+  if (meta) meta.setAttribute("content", THEME_COLORS[chosen][theme]);
   document.querySelectorAll("[data-theme-set]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.themeSet === pref);
+  });
+  document.querySelectorAll("[data-palette-set]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.paletteSet === chosen);
   });
 }
 
@@ -45,6 +62,12 @@ document.querySelectorAll("[data-theme-set]").forEach((button) => {
   button.addEventListener("click", () => {
     localStorage.setItem(THEME_KEY, button.dataset.themeSet);
     applyTheme(button.dataset.themeSet);
+  });
+});
+document.querySelectorAll("[data-palette-set]").forEach((button) => {
+  button.addEventListener("click", () => {
+    localStorage.setItem(PALETTE_KEY, button.dataset.paletteSet);
+    applyTheme(localStorage.getItem(THEME_KEY) || "system", button.dataset.paletteSet);
   });
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -399,14 +422,14 @@ document.querySelectorAll("[data-chip-group]").forEach((group) => {
 
 const settingsRoot = document.querySelector("[data-settings-tabs]");
 if (settingsRoot) {
-  const SETTINGS_SAVE_TABS = new Set(["access", "schedule", "filters", "llm", "reader", "update"]);
+  const SETTINGS_SAVE_TABS = new Set(["device", "schedule", "filters", "llm", "reader", "update"]);
   const settingsForm = settingsRoot.querySelector("[data-settings]");
   const settingsLede = document.querySelector("[data-settings-lede]");
   const settingsTabField = settingsRoot.querySelector("[data-settings-tab-field]");
   const settingsChips = settingsRoot.querySelectorAll("[data-settings-tab]");
 
   function showSettingsTab(tab) {
-    const next = [...settingsChips].some((chip) => chip.dataset.settingsTab === tab) ? tab : "access";
+    const next = [...settingsChips].some((chip) => chip.dataset.settingsTab === tab) ? tab : "device";
     settingsChips.forEach((chip) => {
       const on = chip.dataset.settingsTab === next;
       chip.classList.toggle("is-active", on);
@@ -436,3 +459,18 @@ if (settingsRoot) {
     });
   });
 }
+
+document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+  const input = button.closest(".password-field")?.querySelector("input");
+  if (!input) return;
+  const showIcon = button.querySelector("[data-icon-show]");
+  const hideIcon = button.querySelector("[data-icon-hide]");
+  button.addEventListener("click", () => {
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    button.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    button.title = show ? "Hide password" : "Show password";
+    if (showIcon) showIcon.hidden = show;
+    if (hideIcon) hideIcon.hidden = !show;
+  });
+});

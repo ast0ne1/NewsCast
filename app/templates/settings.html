@@ -17,7 +17,34 @@
 <form method="post" action="/settings" class="stack settings-form" data-settings autocomplete="off"{% if settings_tab not in settings_save_tabs %} hidden{% endif %}>
   <input type="hidden" name="settings_tab" value="{{ settings_tab }}" data-settings-tab-field />
 
-  <div class="stack settings-panel" id="settings-panel-access" role="tabpanel" data-settings-panel="access" aria-labelledby="settings-tab-access"{% if settings_tab != 'access' %} hidden{% endif %}>
+  <div class="stack settings-panel" id="settings-panel-device" role="tabpanel" data-settings-panel="device" aria-labelledby="settings-tab-device"{% if settings_tab != 'device' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Appearance</h2>
+      <p class="hint">Palette for this browser. Light, dark, and Auto stay in the header. Applies immediately — no need to save.</p>
+      <div class="palette-picker" role="group" aria-label="Colour palette">
+        <button type="button" class="palette-option" data-palette-set="default">
+          <span class="palette-swatch" data-swatch="default" aria-hidden="true"></span>
+          <span class="palette-name">Default</span>
+          <span class="palette-note">Warm paper</span>
+        </button>
+        <button type="button" class="palette-option" data-palette-set="ocean">
+          <span class="palette-swatch" data-swatch="ocean" aria-hidden="true"></span>
+          <span class="palette-name">Ocean</span>
+          <span class="palette-note">Cool blue</span>
+        </button>
+        <button type="button" class="palette-option" data-palette-set="forest">
+          <span class="palette-swatch" data-swatch="forest" aria-hidden="true"></span>
+          <span class="palette-name">Forest</span>
+          <span class="palette-note">Moss and sage</span>
+        </button>
+        <button type="button" class="palette-option" data-palette-set="slate">
+          <span class="palette-swatch" data-swatch="slate" aria-hidden="true"></span>
+          <span class="palette-name">Slate</span>
+          <span class="palette-note">Grey, plain</span>
+        </button>
+      </div>
+    </div>
+
     <div class="card stack">
       <h2>Admin access</h2>
       <label>
@@ -30,16 +57,28 @@
       </label>
       <label>
         New password
-        <input type="password" name="new_password" autocomplete="new-password" />
+        <span class="password-field">
+          <input type="password" name="new_password" autocomplete="new-password" />
+          <button type="button" class="icon-btn icon-btn-quiet password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+            <svg data-icon-show viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            <svg data-icon-hide hidden viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg>
+          </button>
+        </span>
       </label>
       <label>
         Confirm new password
-        <input type="password" name="new_password_confirm" autocomplete="new-password" />
+        <span class="password-field">
+          <input type="password" name="new_password_confirm" autocomplete="new-password" />
+          <button type="button" class="icon-btn icon-btn-quiet password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+            <svg data-icon-show viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            <svg data-icon-hide hidden viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg>
+          </button>
+        </span>
       </label>
     </div>
 
     <div class="card stack">
-      <h2>Device</h2>
+      <h2>Network</h2>
       <label>
         Hostname
         <input type="text" name="device_hostname" value="{{ device_hostname }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="newscast" />
@@ -191,7 +230,7 @@
         Device id
         <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
       </label>
-      <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Access labels the briefing so you know which one you pulled.</p>
+      <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Device labels the briefing so you know which one you pulled.</p>
       <label>
         Reader host
         <input type="text" name="reader_host" value="{{ reader_host }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="crosspoint.local" />

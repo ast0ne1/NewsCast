@@ -28,11 +28,11 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Briefing** | Today or Yesterday, category filters, a star to keep a story past expiry, and a bookmark to save it as a long-read |
 | **Saved** | Paste a one-off article URL. NewsCast scrapes the full text, keeps it for 7 days or a date you pick, and includes it in the next briefing |
 | **Search** | Find stories, favourites, and Saved long-reads in the SQLite store |
-| **Send** | Upload an EPUB or PDF. Push now or queue until the reader is on Wi-Fi |
+| **Send** | Upload an EPUB or PDF. Check the reader when you want, then push now or queue until it is on Wi-Fi |
 | **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate to English, and Add custom |
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
-| **Status** | Ingest health, last reader task, CrossPoint online/asleep and push controls, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
-| **Settings** | Tabs for Access, Schedule, Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
+| **Status** | Ingest health, last reader task, Check reader plus push controls, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
+| **Settings** | Tabs for Device (including colour palettes), Schedule, Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
 
 <p align="center">
   <img src="docs/screenshots/briefing.png" alt="Briefing" width="280" />

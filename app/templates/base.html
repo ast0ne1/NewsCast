@@ -15,8 +15,11 @@
         var pref = localStorage.getItem("newscast-theme") || "system";
         var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         var theme = pref === "system" ? (dark ? "dark" : "light") : pref;
+        var palette = localStorage.getItem("newscast-palette") || "default";
+        if (!/^(default|ocean|forest|slate)$/.test(palette)) palette = "default";
         document.documentElement.dataset.theme = theme;
         document.documentElement.dataset.themePref = pref;
+        document.documentElement.dataset.palette = palette;
         document.documentElement.style.colorScheme = theme;
       })();
     </script>
@@ -58,7 +61,7 @@
 
       <main class="main">
         {% if using_factory_admin and active == 'settings' %}
-        <p class="banner">Factory login is still <strong>admin / admin</strong>. Change it on the <a href="/settings?tab=access">Access</a> tab.</p>
+        <p class="banner">Factory login is still <strong>admin / admin</strong>. Change it on the <a href="/settings?tab=device">Device</a> tab.</p>
         {% endif %}
         {% if not llm_ready and active in ['briefing', 'settings'] %}
         <p class="banner banner-muted">

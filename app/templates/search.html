@@ -3,13 +3,17 @@
 {% block content %}
 <section class="hero">
   <h1>Search</h1>
-  <p class="lede">Search titles, summaries, sources, and Saved long-reads in this copy’s SQLite store. Favourites stay searchable after they leave Briefing.</p>
+  <p class="lede">Look through briefing stories, favourites, and Saved long-reads stored on this copy.</p>
 </section>
 
 <form method="get" action="/search" class="card panel saved-form search-form" data-native>
+  <div class="panel-head">
+    <h2>Find stories</h2>
+    <p class="hint">Search titles, summaries, sources, and Saved long-reads. Favourites stay after they leave Briefing.</p>
+  </div>
   <div class="panel-form">
     <label>
-      Find stories
+      Query
       <input type="search" name="q" value="{{ query }}" autocomplete="off" placeholder="keyword or outlet" />
     </label>
     <button class="btn btn-primary" type="submit">Search</button>

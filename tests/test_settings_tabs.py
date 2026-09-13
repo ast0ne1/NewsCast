@@ -2,9 +2,10 @@ from app.routers.ui import SETTINGS_TAB_KEYS, normalize_settings_tab, settings_p
 
 
 def test_settings_tab_defaults_and_aliases():
-    assert normalize_settings_tab(None) == "access"
-    assert normalize_settings_tab("") == "access"
-    assert normalize_settings_tab("nope") == "access"
+    assert normalize_settings_tab(None) == "device"
+    assert normalize_settings_tab("") == "device"
+    assert normalize_settings_tab("nope") == "device"
+    assert normalize_settings_tab("access") == "device"
     assert normalize_settings_tab("LLM") == "llm"
     assert normalize_settings_tab("backup") == "backup"
     assert normalize_settings_tab("update") == "update"
@@ -14,9 +15,10 @@ def test_settings_tab_defaults_and_aliases():
 def test_settings_path_keeps_known_tabs():
     assert settings_path("categories") == "/settings?tab=categories"
     assert settings_path("filters") == "/settings?tab=filters"
-    assert settings_path("mystery") == "/settings?tab=access"
+    assert settings_path("mystery") == "/settings?tab=device"
+    assert settings_path("access") == "/settings?tab=device"
     assert SETTINGS_TAB_KEYS == {
-        "access",
+        "device",
         "schedule",
         "filters",
         "llm",

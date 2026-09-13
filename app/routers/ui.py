@@ -38,7 +38,7 @@ templates = Jinja2Templates(directory=str(ROOT_DIR / "app" / "templates"))
 logger = logging.getLogger("newscast.ui")
 
 SETTINGS_TABS = (
-    ("access", "Access"),
+    ("device", "Device"),
     ("schedule", "Schedule"),
     ("filters", "Filters"),
     ("llm", "LLM"),
@@ -49,9 +49,10 @@ SETTINGS_TABS = (
     ("about", "About"),
 )
 SETTINGS_TAB_KEYS = {key for key, _label in SETTINGS_TABS}
-SETTINGS_SAVE_TABS = {"access", "schedule", "filters", "llm", "reader", "update"}
+SETTINGS_TAB_ALIASES = {"access": "device"}
+SETTINGS_SAVE_TABS = {"device", "schedule", "filters", "llm", "reader", "update"}
 SETTINGS_LEDES = {
-    "access": "Admin login, hostname, and the Home or Work name for this copy.",
+    "device": "Colour palette, admin login, hostname, and the Home or Work name for this copy.",
     "schedule": "How often sources refresh, and how many stories Briefing shows.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
@@ -64,11 +65,11 @@ SETTINGS_LEDES = {
 
 
 def normalize_settings_tab(value: str | None) -> str:
-    key = (value or "").strip().lower()
-    return key if key in SETTINGS_TAB_KEYS else "access"
+    key = SETTINGS_TAB_ALIASES.get((value or "").strip().lower(), (value or "").strip().lower())
+    return key if key in SETTINGS_TAB_KEYS else "device"
 
 
-def settings_path(tab: str | None = "access") -> str:
+def settings_path(tab: str | None = "device") -> str:
     return f"/settings?tab={normalize_settings_tab(tab)}"
 
 
@@ -379,7 +380,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     story_count = db.query(Story).count()
     last_task = db.query(SyncTask).order_by(SyncTask.created_at.desc()).first()
     share_url = hostname.get_share_url(db)
-    reader = reader_push.snapshot(db)
+    reader = reader_push.snapshot(db, probe=False)
     return templates.TemplateResponse(
         request,
         "status.html",
@@ -410,13 +411,13 @@ def library_page(request: Request, db: Annotated[Session, Depends(get_db)]):
         {
             **_base_context(request, db, "library"),
             "library_files": _library_items(db),
-            "reader": reader_push.snapshot(db),
+            "reader": reader_push.snapshot(db, probe=False),
         },
     )
 
 
 @router.get("/settings")
-def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab: str = "access"):
+def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab: str = "device"):
     settings_tab = normalize_settings_tab(tab)
     return templates.TemplateResponse(
         request,
@@ -489,6 +490,20 @@ def push_library_file(file_id: int, request: Request, db: Annotated[Session, Dep
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Queued for the next reader sync."})
     return RedirectResponse("/library", status_code=303)
+
+
+@router.post("/reader/poll")
+def poll_reader(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/library"):
+    nxt = safe_next(next)
+    if nxt not in {"/status", "/library"}:
+        nxt = "/library"
+    host = reader_push.reader_host(db)
+    online = reader_push.reader_reachable(host)
+    reader_push.remember_probe(host, online)
+    message = f"{host} is {'online' if online else 'asleep'}."
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": message, "online": online, "host": host})
+    return RedirectResponse(nxt, status_code=303)
 
 
 @router.post("/reader/push")
@@ -733,7 +748,7 @@ def save_settings(
     reader_host: Annotated[str, Form()] = "",
     reader_upload_path: Annotated[str, Form()] = "",
     reader_push_when_online: Annotated[str, Form()] = "",
-    settings_tab: Annotated[str, Form()] = "access",
+    settings_tab: Annotated[str, Form()] = "device",
 ):
     tab = normalize_settings_tab(settings_tab)
     reauth = False
@@ -1007,7 +1022,7 @@ def _form_error(request: Request, message: str, redirect: str, status_code: int 
     return RedirectResponse(redirect, status_code=303)
 
 
-def _settings_error(request: Request, message: str, tab: str | None = "access"):
+def _settings_error(request: Request, message: str, tab: str | None = "device"):
     if _wants_json(request):
         return JSONResponse({"ok": False, "message": message}, status_code=400)
     return RedirectResponse(settings_path(tab), status_code=303)

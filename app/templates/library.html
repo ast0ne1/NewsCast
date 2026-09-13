@@ -3,10 +3,21 @@
 {% block content %}
 <section class="hero">
   <h1>Send a file</h1>
-  <p class="lede">EPUB or PDF. Sent as-is on the next reader sync — not summarised. {{ reader.host }} is {{ 'online' if reader.online else 'asleep' }}{% if reader.pending %}, {{ reader.pending }} queued{% endif %}.</p>
+  <p class="lede">
+    EPUB or PDF. Sent as-is on the next reader sync — not summarised.
+    {% if reader.checked %}
+      {{ reader.host }} is {{ 'online' if reader.online else 'asleep' }}
+    {% else %}
+      {{ reader.host }} has not been checked this session
+    {% endif %}{% if reader.pending %}, {{ reader.pending }} queued{% endif %}.
+  </p>
 </section>
 
 <div class="btn-row send-push">
+  <form method="post" action="/reader/poll" data-busy-label="Checking…">
+    <input type="hidden" name="next" value="/library" />
+    <button class="btn btn-secondary" type="submit">Check reader</button>
+  </form>
   <form method="post" action="/reader/push">
     <input type="hidden" name="next" value="/library" />
     <button class="btn btn-secondary" type="submit">Push now</button>

@@ -54,11 +54,19 @@
 <div class="card stack">
   <h2>Push to reader</h2>
   <p class="hint">
-    {{ reader.host }} is <strong>{{ 'online' if reader.online else 'asleep' }}</strong>.
+    {% if reader.checked %}
+      {{ reader.host }} is <strong>{{ 'online' if reader.online else 'asleep' }}</strong>.
+    {% else %}
+      {{ reader.host }} has not been checked this session.
+    {% endif %}
     {% if reader.pending %}{{ reader.pending }} file{{ 's' if reader.pending != 1 else '' }} waiting.{% else %}Nothing queued.{% endif %}
     {% if reader.push_when_online %}NewsCast will push when the reader is on Wi-Fi.{% endif %}
   </p>
   <div class="btn-row">
+    <form method="post" action="/reader/poll" data-busy-label="Checking…">
+      <input type="hidden" name="next" value="/status" />
+      <button class="btn btn-secondary" type="submit">Check reader</button>
+    </form>
     <form method="post" action="/reader/push">
       <input type="hidden" name="next" value="/status" />
       <button class="btn btn-primary" type="submit">Push now</button>

@@ -26,6 +26,32 @@ def test_unreachable_leaves_pending(tmp_path: Path, monkeypatch):
     assert db.query(SyncTask).one().status == "pending"
 
 
+def test_snapshot_skips_probe_until_remembered(monkeypatch):
+    db = _session()
+    called: list[str] = []
+    monkeypatch.setattr(
+        reader_push,
+        "reader_reachable",
+        lambda host, timeout=None: called.append(host) or True,
+    )
+    reader_push._last_probe = None
+    snap = reader_push.snapshot(db, probe=False)
+    assert snap["checked"] is False
+    assert snap["online"] is None
+    assert called == []
+
+    snap = reader_push.snapshot(db, probe=True)
+    assert snap["checked"] is True
+    assert snap["online"] is True
+    assert called
+    called.clear()
+
+    snap = reader_push.snapshot(db, probe=False)
+    assert snap["checked"] is True
+    assert snap["online"] is True
+    assert called == []
+
+
 def test_upload_marks_complete(tmp_path: Path, monkeypatch):
     db = _session()
     path = tmp_path / "news.epub"
