@@ -220,11 +220,13 @@
       <p class="hint">This copy is <strong>{{ app_version }}</strong>.
         {% if update_check.newer %}
           <strong>{{ update_check.tag }}</strong> is available.
+        {% elif update_check.tag %}
+          You have the latest version.
         {% elif update_check.message %}
           {{ update_check.message }}
         {% endif %}
       </p>
-      {% if update_check.notes %}
+      {% if update_check.newer and update_check.notes %}
       <p class="hint update-notes">{{ update_check.notes[:1200] }}</p>
       {% endif %}
       <p class="hint">Save the repository, then use Check for updates below. Install validates the zip and makes a backup first. Code is replaced; your data folder and .env stay put.</p>

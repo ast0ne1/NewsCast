@@ -74,6 +74,20 @@ def repo_from_db(db: Session) -> str:
     return normalize_repo(settings.get_value(db, "github_repo") or env.github_repo)
 
 
+def refresh_check(payload: dict, current: str = "") -> dict:
+    data = dict(payload or {})
+    running = current or __version__
+    tag = str(data.get("tag") or "")
+    data["current"] = running
+    data["newer"] = bool(tag) and is_newer(tag, running)
+    if data["newer"]:
+        return data
+    data["valid"] = False
+    if tag and versions_match(tag, running):
+        data["message"] = f"You have the latest version ({running})."
+    return data
+
+
 def last_check(db: Session) -> dict:
     raw = settings.get_value(db, "update_last_check")
     if not raw:
@@ -82,7 +96,9 @@ def last_check(db: Session) -> dict:
         data = json.loads(raw)
     except json.JSONDecodeError:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    return refresh_check(data)
 
 
 def _save_check(db: Session, payload: dict) -> dict:
@@ -215,6 +231,51 @@ def snapshot_current_code() -> Path:
     return previous
 
 
+def _replace_file(source: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.name}.newscast-tmp")
+    try:
+        if tmp.exists():
+            tmp.unlink()
+        shutil.copy2(source, tmp)
+        os.replace(tmp, dest)
+    except OSError:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        shutil.copy2(source, dest)
+
+
+def _remove_path(path: Path) -> None:
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink()
+    except OSError as exc:
+        logger.warning("could not remove %s: %s", path, exc)
+
+
+def _overlay_dir(source: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    wanted: set[str] = set()
+    for item in source.iterdir():
+        if item.name == "__pycache__" or item.suffix == ".pyc":
+            continue
+        wanted.add(item.name)
+        dest = target / item.name
+        if item.is_dir():
+            _overlay_dir(item, dest)
+        else:
+            _replace_file(item, dest)
+    for item in list(target.iterdir()):
+        if item.name in wanted or item.name == "__pycache__" or item.suffix == ".pyc":
+            continue
+        _remove_path(item)
+
+
 def _copy_code_tree(source_root: Path, dest_root: Path) -> None:
     for name in CODE_NAMES:
         source = source_root / name
@@ -222,11 +283,9 @@ def _copy_code_tree(source_root: Path, dest_root: Path) -> None:
             continue
         target = dest_root / name
         if source.is_dir():
-            if target.exists():
-                shutil.rmtree(target)
-            shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            _overlay_dir(source, target)
         else:
-            shutil.copy2(source, target)
+            _replace_file(source, target)
 
 
 def apply_zip(zip_path: Path, expected_tag: str = "") -> dict:

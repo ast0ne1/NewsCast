@@ -4,6 +4,10 @@ Current version is **0.0.0.2**. New work is appended under that version until yo
 
 ## 0.0.0.2 — 2026-09-13
 
+### Fixed
+- Installing a GitHub update on Windows no longer deletes the running `app` folder, which caused an internal server error after the backup
+- Status and Settings treat a GitHub release that matches this copy as up to date, so they no longer offer to install the version already running
+
 ### Added
 - Briefing chips switch Today and Yesterday; OPDS and `/api/x3/news.epub` can serve yesterday as well
 - Briefing bookmark saves a story as a Saved long-read beside the star

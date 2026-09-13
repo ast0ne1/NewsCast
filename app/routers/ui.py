@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 from typing import Annotated
 from urllib.parse import urlparse
@@ -34,6 +35,7 @@ from app.services import packages as package_service
 public = APIRouter()
 router = APIRouter(dependencies=[Depends(require_admin)])
 templates = Jinja2Templates(directory=str(ROOT_DIR / "app" / "templates"))
+logger = logging.getLogger("newscast.ui")
 
 SETTINGS_TABS = (
     ("access", "Access"),
@@ -856,6 +858,9 @@ def install_update(request: Request, db: Annotated[Session, Depends(get_db)]):
         result = update.install_latest(db)
     except ValueError as exc:
         return _form_error(request, str(exc), settings_path("update"))
+    except Exception as exc:
+        logger.exception("update install failed")
+        return _form_error(request, _install_error_message(exc), settings_path("update"))
     update.schedule_restart()
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": result.get("message") or "Installing…"})
@@ -868,6 +873,9 @@ def rollback_update(request: Request):
         update.rollback_code()
     except ValueError as exc:
         return _form_error(request, str(exc), settings_path("backup"))
+    except Exception as exc:
+        logger.exception("update rollback failed")
+        return _form_error(request, _install_error_message(exc), settings_path("backup"))
     update.schedule_restart()
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Rolled back to the previous app. Restarting…"})
@@ -984,6 +992,13 @@ def _library_items(db: Session) -> list[dict]:
         }
         for item in items
     ]
+
+
+def _install_error_message(exc: BaseException) -> str:
+    if isinstance(exc, OSError):
+        detail = exc.strerror or str(exc)
+        return f"Could not replace app files ({detail}). Close other NewsCast windows and try again."
+    return f"Could not install the update: {exc}"
 
 
 def _form_error(request: Request, message: str, redirect: str, status_code: int = 400):
