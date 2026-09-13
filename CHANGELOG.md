@@ -1,6 +1,16 @@
 # Changelog
 
-Version stays at **0.0.0.1** until you ask to bump it. New work is appended under that version.
+Current version is **0.0.0.2**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.2 — 2026-09-13
+
+### Added
+- Briefing chips switch Today and Yesterday; OPDS and `/api/x3/news.epub` can serve yesterday as well
+- Briefing bookmark saves a story as a Saved long-read beside the star
+- Feeds can mute a source for 24 hours, add include/exclude words, and show a Healthy / Empty / Error badge
+- Settings Filters tab holds global include/exclude words; each feed can add more
+- Search tab looks through briefing stories, favourites, and Saved long-reads with SQL LIKE
+- Status and Send can push the briefing and library to CrossPoint when it is on Wi-Fi, or queue files while the reader is asleep
 
 ## 0.0.0.1 — 2026-09-13
 
@@ -109,9 +119,3 @@ Version stays at **0.0.0.1** until you ask to bump it. New work is appended unde
 - Settings splits Backup and Update: restore stays on Backup; GitHub check and install sit on Update
 - Settings tab is labelled Backup/Restore, and Roll back last app sits there with restore, not on Update
 - Git ignore covers SQLite WAL files, Cursor settings, and leftover cookie dumps so they stay off GitHub
-- Briefing chips switch Today and Yesterday; OPDS and `/api/x3/news.epub` can serve yesterday as well
-- Briefing bookmark saves a story as a Saved long-read beside the star
-- Feeds can mute a source for 24 hours, add include/exclude words, and show a Healthy / Empty / Error badge
-- Settings Filters tab holds global include/exclude words; each feed can add more
-- Search tab looks through briefing stories, favourites, and Saved long-reads with SQL LIKE
-- Status and Send can push the briefing and library to CrossPoint when it is on Wi-Fi, or queue files while the reader is asleep
