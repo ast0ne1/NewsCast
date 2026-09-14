@@ -49,3 +49,21 @@ def test_catalog_has_australian_library():
     ids = {item["id"] for item in australia}
     assert {"abc-news-au", "guardian-australia", "sbs-news", "smh", "the-age", "afr", "abc-sport-au", "itnews"} <= ids
     assert all(item["category"] == "australia" for item in australia)
+
+
+def test_remove_recommended_deletes_enabled_feed():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.models import Base, Feed
+    from app.routers.feeds import add_recommended, remove_recommended
+    from app.services.catalog import catalog_with_status
+
+    engine = create_engine("sqlite://", future=True)
+    Base.metadata.create_all(engine)
+    db = Session(engine)
+    add_recommended("techcrunch", db)
+    assert any(item["id"] == "techcrunch" and item["added"] for item in catalog_with_status(db))
+    assert remove_recommended("techcrunch", db) == {"ok": True, "removed": True}
+    assert db.query(Feed).filter(Feed.catalog_id == "techcrunch").one_or_none() is None
+    assert any(item["id"] == "techcrunch" and not item["added"] for item in catalog_with_status(db))

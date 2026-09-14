@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from app import __author__, __version__
+from app import __asset_rev__, __author__, __version__
 from app.auth import attach_session, clear_session, credentials_match, is_signed_in, require_admin, safe_next
 from app.config import ROOT_DIR, env
 from app.db import get_db
@@ -93,6 +93,7 @@ def _base_context(request: Request, db: Session, active: str) -> dict:
         "llm_provider": llm.provider,
         "using_factory_admin": settings.using_factory_admin(db),
         "app_version": __version__,
+        "asset_rev": __asset_rev__,
         "app_author": __author__,
         "homescreen_name": hostname.homescreen_name(db),
         "favicons": favicon.map_for_feeds(db.query(Feed).all()),
@@ -748,14 +749,20 @@ def toggle_feed(feed_id: int, request: Request, db: Annotated[Session, Depends(g
 
 
 @router.post("/feeds/{feed_id}/delete")
-def delete_feed_form(feed_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+def delete_feed_form(
+    feed_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    next: Annotated[str, Form()] = "/feeds",
+):
     feed = db.get(Feed, feed_id)
     if feed:
         db.delete(feed)
         db.commit()
+    nxt = next if next in {"/feeds", "/catalog"} else "/feeds"
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Removed the feed."})
-    return RedirectResponse("/feeds", status_code=303)
+    return RedirectResponse(nxt, status_code=303)
 
 
 @router.post("/catalog/{catalog_id}/add")
@@ -765,6 +772,28 @@ def add_catalog_form(catalog_id: str, request: Request, db: Annotated[Session, D
     add_recommended(catalog_id, db)
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Feed enabled."})
+    return RedirectResponse("/catalog", status_code=303)
+
+
+@router.post("/catalog/{catalog_id}/remove")
+def remove_catalog_form(catalog_id: str, request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.services.catalog import find_catalog_item
+
+    item = find_catalog_item(catalog_id)
+    feed = None
+    if item:
+        feed = (
+            db.query(Feed)
+            .filter((Feed.catalog_id == catalog_id) | (Feed.url == item["url"]))
+            .one_or_none()
+        )
+    else:
+        feed = db.query(Feed).filter(Feed.catalog_id == catalog_id).one_or_none()
+    if feed:
+        db.delete(feed)
+        db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": "Removed the feed."})
     return RedirectResponse("/catalog", status_code=303)
 
 

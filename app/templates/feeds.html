@@ -5,7 +5,7 @@
 <section class="hero hero-row">
   <div>
     <h1>Feeds</h1>
-    <p class="lede">Each source can follow the global schedule ({{ global_interval_label }}) or use its own. Tap the circular arrow on a card to fetch just that source. Turn off Summarise to keep the full article text. Nordic sources translate the headline and excerpt to English before they are stored.</p>
+    <p class="lede">Each source can follow the global schedule ({{ global_interval_label }}) or use its own. Tap a card to edit schedule and filters. Tap the circular arrow to fetch just that source. Turn off Summarise to keep the full article text. Nordic sources translate the headline and excerpt to English before they are stored.</p>
   </div>
   <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -74,46 +74,56 @@
         Not fetched yet
       {% endif %}
     </p>
-    <form method="post" action="/feeds/{{ feed.id }}/schedule" class="schedule-form">
-      <label>
-        Schedule
-        <select name="schedule_mode" data-schedule-mode>
-          <option value="global" {% if (feed.schedule_mode or 'global') == 'global' %}selected{% endif %}>Global ({{ global_interval_label }})</option>
-          <option value="custom" {% if feed.schedule_mode == 'custom' %}selected{% endif %}>Custom</option>
-        </select>
-      </label>
-      <label data-custom-interval {% if feed.schedule_mode != 'custom' %}hidden{% endif %}>
-        Every
-        <select name="interval_minutes">
-          {% for value, label in refresh_intervals %}
-          <option value="{{ value }}" {% if feed.interval_minutes == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        Article text
-        <select name="summarize">
-          <option value="1" {% if feed.summarize != false %}selected{% endif %}>Summarise</option>
-          <option value="0" {% if feed.summarize == false %}selected{% endif %}>Full article</option>
-        </select>
-      </label>
-      <label>
-        Language
-        <select name="translate">
-          <option value="0" {% if not feed.translate %}selected{% endif %}>As published</option>
-          <option value="1" {% if feed.translate %}selected{% endif %}>Translate to English</option>
-        </select>
-      </label>
-      <label class="schedule-span">
-        Include words
-        <input type="text" name="keyword_include" value="{{ feed.keyword_include or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
-      </label>
-      <label class="schedule-span">
-        Exclude words
-        <input type="text" name="keyword_exclude" value="{{ feed.keyword_exclude or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
-      </label>
-      <button class="btn btn-secondary" type="submit">Save</button>
-    </form>
+    <details class="feed-settings">
+      <summary class="feed-settings-toggle">
+        <span class="feed-settings-toggle-row">
+          <span>Schedule &amp; filters</span>
+          <svg class="feed-settings-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </span>
+      </summary>
+      <div class="feed-settings-panel">
+        <form method="post" action="/feeds/{{ feed.id }}/schedule" class="schedule-form">
+          <label>
+            Schedule
+            <select name="schedule_mode" data-schedule-mode>
+              <option value="global" {% if (feed.schedule_mode or 'global') == 'global' %}selected{% endif %}>Global ({{ global_interval_label }})</option>
+              <option value="custom" {% if feed.schedule_mode == 'custom' %}selected{% endif %}>Custom</option>
+            </select>
+          </label>
+          <label data-custom-interval {% if feed.schedule_mode != 'custom' %}hidden{% endif %}>
+            Every
+            <select name="interval_minutes">
+              {% for value, label in refresh_intervals %}
+              <option value="{{ value }}" {% if feed.interval_minutes == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Article text
+            <select name="summarize">
+              <option value="1" {% if feed.summarize != false %}selected{% endif %}>Summarise</option>
+              <option value="0" {% if feed.summarize == false %}selected{% endif %}>Full article</option>
+            </select>
+          </label>
+          <label>
+            Language
+            <select name="translate">
+              <option value="0" {% if not feed.translate %}selected{% endif %}>As published</option>
+              <option value="1" {% if feed.translate %}selected{% endif %}>Translate to English</option>
+            </select>
+          </label>
+          <label class="schedule-span">
+            Include words
+            <input type="text" name="keyword_include" value="{{ feed.keyword_include or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
+          </label>
+          <label class="schedule-span">
+            Exclude words
+            <input type="text" name="keyword_exclude" value="{{ feed.keyword_exclude or '' }}" autocomplete="off" placeholder="optional, comma-separated" />
+          </label>
+          <button class="btn btn-secondary" type="submit">Save</button>
+        </form>
+      </div>
+    </details>
   </li>
   {% else %}
   <li class="empty card">No feeds yet. Add one from Catalog, or tap Add custom.</li>

@@ -145,3 +145,16 @@ def add_recommended(catalog_id: str, db: Annotated[Session, Depends(get_db)]):
 
     capture_for_feed_async(feed.id)
     return _feed_dict(feed)
+
+
+@router.delete("/api/feeds/recommended/{catalog_id}")
+def remove_recommended(catalog_id: str, db: Annotated[Session, Depends(get_db)]):
+    item = find_catalog_item(catalog_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown recommended feed")
+    feed = db.query(Feed).filter((Feed.catalog_id == catalog_id) | (Feed.url == item["url"])).one_or_none()
+    if feed is None:
+        return {"ok": True, "removed": False}
+    db.delete(feed)
+    db.commit()
+    return {"ok": True, "removed": True}

@@ -17,6 +17,12 @@ Current version is **0.0.0.3**. New work is appended under that version until yo
 - Settings Reader can set the paper title/filename pattern and date style used by OPDS, EPUB metadata, and downloads
 - Settings Reader can set a custom paper label for `{label}`; Device instance name is `{instance}`
 - Settings Reader splits connection, Sync, and Paper naming into separate cards
+- Feeds cards keep the source header visible and collapse schedule and filters behind Schedule & filters by default
+- Catalog shows Remove on added sources (including custom ones), so feeds can be taken off without opening Feeds
+- Feeds Schedule & filters uses a compact toggle with a fixed-size chevron; Catalog Remove no longer 404s after confirm
+- Feeds Schedule & filters expands with native details (no JS), and static CSS/JS cache-bust when assets change
+- Feeds, Catalog, and Briefing keep the active chip filter after enable, add, remove, and other reloads
+- Feeds and Catalog tighten for narrow phones: stacked headers, single-column catalog, and package forms that stay inside the page margins
 
 ### Fixed
 - Status OPDS and catalog links use the LAN IP when `PUBLIC_BASE_URL` is still localhost, so readers are not pointed at 127.0.0.1

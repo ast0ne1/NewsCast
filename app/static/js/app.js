@@ -248,6 +248,7 @@ document.querySelectorAll("form").forEach((form) => {
         return;
       }
       toastAfterReload(data.message || "Saved", "ok");
+      document.querySelectorAll("[data-filter-root]").forEach((root) => writeStoredFilters(root));
       window.location.reload();
     } catch (error) {
       showFormError(form, error.message);
@@ -435,6 +436,45 @@ function applyChipFilters(root) {
   if (empty) empty.hidden = visible > 0;
 }
 
+function filterStoreKey() {
+  return `newscast-filters:${window.location.pathname}`;
+}
+
+function readStoredFilters() {
+  try {
+    const raw = sessionStorage.getItem(filterStoreKey());
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredFilters(root) {
+  const selected = {};
+  root.querySelectorAll("[data-chip-group]").forEach((group) => {
+    const key = group.dataset.filterKey || "category";
+    selected[key] = group.querySelector("[data-filter].is-active")?.dataset.filter || "all";
+  });
+  try {
+    sessionStorage.setItem(filterStoreKey(), JSON.stringify(selected));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function restoreStoredFilters(root) {
+  const stored = readStoredFilters();
+  root.querySelectorAll("[data-chip-group]").forEach((group) => {
+    const key = group.dataset.filterKey || "category";
+    const wanted = stored[key];
+    if (!wanted) return;
+    const chip = [...group.querySelectorAll("[data-filter]")].find((item) => item.dataset.filter === wanted);
+    if (!chip) return;
+    group.querySelectorAll("[data-filter]").forEach((other) => other.classList.toggle("is-active", other === chip));
+  });
+  applyChipFilters(root);
+}
+
 function resetFilterScroll() {
   const main = document.querySelector(".main");
   if (main) main.scrollTop = 0;
@@ -443,6 +483,10 @@ function resetFilterScroll() {
   document.body.scrollTop = 0;
 }
 
+document.querySelectorAll("[data-filter-root]").forEach((root) => {
+  restoreStoredFilters(root);
+});
+
 document.querySelectorAll("[data-chip-group]").forEach((group) => {
   const chips = group.querySelectorAll("[data-filter]");
   const root = group.closest("[data-filter-root]") || document;
@@ -450,6 +494,7 @@ document.querySelectorAll("[data-chip-group]").forEach((group) => {
     chip.addEventListener("click", () => {
       chips.forEach((other) => other.classList.toggle("is-active", other === chip));
       applyChipFilters(root);
+      writeStoredFilters(root);
       resetFilterScroll();
       requestAnimationFrame(resetFilterScroll);
     });

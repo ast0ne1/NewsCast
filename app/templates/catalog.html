@@ -5,7 +5,7 @@
 <section class="hero hero-row">
   <div>
     <h1>Catalog</h1>
-    <p class="lede">Browse this library and tap Add. Import a country or industry package, or export one of your categories as a JSON file to share. Nordic sources are translated to English before they reach the briefing. Use the plus button only for a source that is not listed.</p>
+    <p class="lede">Browse this library and tap Add or Remove. Import a country or industry package, or export one of your categories as a JSON file to share. Nordic sources are translated to English before they reach the briefing. Use the plus button only for a source that is not listed.</p>
   </div>
   <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -57,10 +57,13 @@
     <li class="card catalog-card is-added" data-filter-item data-category="{{ feed.category }}" data-source="{{ 'webpage' if feed.type == 'webpage' else 'rss' }}">
       <div class="catalog-top">
         <h3 class="catalog-title">{% if favicons.get(feed.name) %}<img class="source-icon source-icon-lg" src="{{ favicons[feed.name] }}" alt="" width="20" height="20">{% endif %}{{ feed.name }}</h3>
-        <p class="catalog-action is-added">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-          <span>Added</span>
-        </p>
+        <form method="post" action="/feeds/{{ feed.id }}/delete" data-confirm="Remove {{ feed.name }}?" data-confirm-detail="Existing stories stay in the briefing until they expire." data-confirm-ok="Remove">
+          <input type="hidden" name="next" value="/catalog" />
+          <button class="catalog-action is-remove" type="submit" aria-label="Remove {{ feed.name }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+            <span>Remove</span>
+          </button>
+        </form>
       </div>
       <p class="catalog-meta">
         <span class="chip chip-quiet">{{ category_labels.get(feed.category, feed.category) }}</span>
@@ -81,10 +84,12 @@
       <div class="catalog-top">
         <h3 class="catalog-title">{% if item.favicon %}<img class="source-icon source-icon-lg" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}{{ item.name }}</h3>
         {% if item.added %}
-          <p class="catalog-action is-added">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-            <span>Added</span>
-          </p>
+          <form method="post" action="/catalog/{{ item.id }}/remove" data-confirm="Remove {{ item.name }}?" data-confirm-detail="Existing stories stay in the briefing until they expire." data-confirm-ok="Remove">
+            <button class="catalog-action is-remove" type="submit" aria-label="Remove {{ item.name }}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+              <span>Remove</span>
+            </button>
+          </form>
         {% else %}
           <form method="post" action="/catalog/{{ item.id }}/add">
             <button class="catalog-action" type="submit" aria-label="Add {{ item.name }}">
