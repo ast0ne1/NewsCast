@@ -7,7 +7,7 @@ The intended reader paths are **CrossPoint** (Xteink) and **KOReader** (Kobo) ov
 Default login: **admin** / **admin** on the in-page sign-in screen. Change it on Settings after first launch.
 
 <p align="center">
-  <img src="docs/screenshots/login.png" alt="NewsCast sign-in screen on a phone" width="280" />
+  <img src="docs/screenshots/login.png?v=0.0.0.4" alt="NewsCast sign-in screen on a phone" width="280" />
 </p>
 
 ## What it does
