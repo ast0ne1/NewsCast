@@ -8,6 +8,7 @@ Current version is **0.0.0.3**. New work is appended under that version until yo
 - Settings Reader can target Xteink (CrossPoint HTTP push) or Kobo (KOReader OPDS plus SSH/SFTP push)
 - Kobo Check reader probes the KOReader SSH port; Push now and Queue for later copy queued EPUBs and PDFs over SFTP into `/mnt/onboard/News`
 - Status and README document KOReader OPDS setup and SSH server steps beside the existing CrossPoint path
+- Daily briefing EPUB includes a generated newspaper-style cover image for library previews
 
 ### Changed
 - Reader host, upload folder, and push hints follow the chosen device (CrossPoint File Transfer vs KOReader SSH)

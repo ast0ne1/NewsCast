@@ -15,6 +15,7 @@ from app.config import BRIEFING_DIR, env
 from app.models import Feed, Story, SyncTask, utcnow
 from app.services import settings
 from app.services.categories import BUILTIN_LABELS, DEFAULT_CATEGORY, category_labels
+from app.services.cover_image import render_newspaper_cover
 from app.services.filters import story_kept
 
 BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
@@ -64,6 +65,8 @@ p { margin: 0 0 0.75em; }
 a { color: #111; text-decoration: underline; }
 .meta { font-style: italic; color: #333; margin: 0 0 0.35em; }
 .byline { font-style: italic; color: #333; margin: 0 0 1em; }
+.cover-image { margin: 0 0 1em; text-align: center; }
+.cover-image img { width: 100%; height: auto; }
 .cover-rule {
   border: 0;
   border-top: 1px solid #111;
@@ -668,11 +671,15 @@ def write_epub(payload: dict, dest: Path) -> None:
     book.set_language("en")
     book.add_author("NewsCast")
 
+    cover_bytes = render_newspaper_cover(heading=heading, date_label=date_label, stories=stories)
+    book.set_cover("cover.jpg", cover_bytes, create_page=False)
+
     style = epub.EpubItem(uid="style", file_name="style/eink.css", media_type="text/css", content=EINK_CSS.encode())
     book.add_item(style)
 
     groups = group_stories(stories)
     cover_bits = [
+        '<div class="cover-image"><img alt="Front page" src="cover.jpg"/></div>',
         f"<h1>{html.escape(heading)}</h1>",
         f'<p class="meta">{html.escape(date_label)}</p>',
     ]

@@ -134,9 +134,16 @@ def test_write_epub_strips_unsafe_html_and_groups_toc(tmp_path: Path):
         )
         assert "<script" not in chapters
         assert "alert(1)" not in chapters
-        assert "<img" not in chapters
+        story_html = "\n".join(
+            archive.read(name).decode("utf-8", errors="ignore")
+            for name in names
+            if name.replace("\\", "/").endswith(tuple(f"story-{i}.xhtml" for i in range(1, 10)))
+            or "/story-" in name.replace("\\", "/")
+        )
+        assert "<img" not in story_html
         assert "Hello" in chapters
         cover = archive.read("EPUB/cover.xhtml").decode("utf-8", errors="ignore")
+        assert 'src="cover.jpg"' in cover
         assert "toc-category" in cover
         assert "toc-source" in cover
         assert cover.index("World News") < cover.index("BBC")
@@ -153,6 +160,7 @@ def test_write_epub_strips_unsafe_html_and_groups_toc(tmp_path: Path):
         css = next(name for name in names if name.endswith("eink.css"))
         assert "Georgia" in archive.read(css).decode("utf-8")
         assert "toc-stories" in archive.read(css).decode("utf-8")
+        assert any(name.endswith("cover.jpg") for name in names)
 
 
 def test_group_stories_by_source_keeps_first_seen_order():
