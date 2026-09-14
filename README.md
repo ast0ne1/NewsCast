@@ -7,7 +7,7 @@ The intended reader paths are **CrossPoint** (Xteink) and **KOReader** (Kobo) ov
 Default login: **admin** / **admin** on the in-page sign-in screen. Change it on Settings after first launch.
 
 <p align="center">
-  <img src="docs/screenshots/login.png" alt="NewsCast sign-in screen on a phone" width="280" />
+  <img src="docs/screenshots/login.png?v=0.0.0.4" alt="NewsCast sign-in screen on a phone" width="280" />
 </p>
 
 ## What it does
@@ -35,14 +35,14 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Settings** | Tabs for Device (including colour palettes), Schedule (refresh interval, story cap, and newspaper publish time), Filters (include/exclude words), LLM, Reader (Xteink/CrossPoint or Kobo/KOReader, catalog login, and push), Categories, Backup/Restore, Update, and About |
 
 <p align="center">
-  <img src="docs/screenshots/briefing.png" alt="Briefing" width="280" />
-  <img src="docs/screenshots/saved.png" alt="Saved" width="280" />
-  <img src="docs/screenshots/search.png" alt="Search" width="280" />
-  <img src="docs/screenshots/send.png" alt="Send" width="280" />
-  <img src="docs/screenshots/feeds.png" alt="Feeds" width="280" />
-  <img src="docs/screenshots/catalog.png" alt="Catalog" width="280" />
-  <img src="docs/screenshots/status.png" alt="Status" width="280" />
-  <img src="docs/screenshots/settings.png" alt="Settings" width="280" />
+  <img src="docs/screenshots/briefing.png?v=0.0.0.4" alt="Briefing" width="280" />
+  <img src="docs/screenshots/saved.png?v=0.0.0.4" alt="Saved" width="280" />
+  <img src="docs/screenshots/search.png?v=0.0.0.4" alt="Search" width="280" />
+  <img src="docs/screenshots/send.png?v=0.0.0.4" alt="Send" width="280" />
+  <img src="docs/screenshots/feeds.png?v=0.0.0.4" alt="Feeds" width="280" />
+  <img src="docs/screenshots/catalog.png?v=0.0.0.4" alt="Catalog" width="280" />
+  <img src="docs/screenshots/status.png?v=0.0.0.4" alt="Status" width="280" />
+  <img src="docs/screenshots/settings.png?v=0.0.0.4" alt="Settings" width="280" />
 </p>
 
 Refresh in the header fetches every enabled source now. A background tick every minute only fetches sources that are due. Sources set to Global follow the Settings interval; Custom sources keep their own.
