@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth import require_x3_token
 from app.db import get_db
 from app.services.briefing import current_briefing_payload, frozen_briefing_path, normalize_briefing_day
+from app.services.paper_naming import day_from_briefing_path, paper_download_name
 
 router = APIRouter(prefix="/api/x3", dependencies=[Depends(require_x3_token)])
 
@@ -16,10 +17,10 @@ def _day_key(day: str | None) -> str:
     return "today" if key == "all" else key
 
 
-def _download_name(path, key: str, suffix: str) -> str:
-    date_part = path.stem.removeprefix("news-")
-    if date_part and date_part != path.stem:
-        return f"NewsCast-{date_part}.{suffix}"
+def _download_name(db: Session, path, key: str, suffix: str) -> str:
+    day = day_from_briefing_path(path.stem)
+    if day is not None:
+        return paper_download_name(db, day, suffix=suffix)
     return "newscast-news-yesterday.epub" if key == "yesterday" else f"newscast-news.{suffix}"
 
 
@@ -46,5 +47,5 @@ def x3_news_epub(db: Annotated[Session, Depends(get_db)], day: str = "today"):
     return FileResponse(
         path,
         media_type="application/epub+zip",
-        filename=_download_name(path, key, "epub"),
+        filename=_download_name(db, path, key, "epub"),
     )

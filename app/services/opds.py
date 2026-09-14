@@ -11,6 +11,7 @@ from app.models import LibraryFile
 from app.services import hostname, settings
 from app.services.briefing import available_daily_papers, briefing_title
 from app.services.library import media_type_for
+from app.services.paper_naming import paper_display_title
 
 ATOM = "http://www.w3.org/2005/Atom"
 NAV_TYPE = "application/atom+xml;profile=opds-catalog;kind=navigation"
@@ -26,13 +27,15 @@ def atom_updated(value: datetime | None = None) -> str:
     return when.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def briefing_entry_title(instance_name: str = "", when: datetime | date | None = None) -> str:
+def briefing_entry_title(db: Session | None = None, when: datetime | date | None = None, instance_name: str = "") -> str:
     if isinstance(when, datetime):
         day = when.astimezone().date() if when.tzinfo else when.date()
     elif isinstance(when, date):
         day = when
     else:
         day = datetime.now().date()
+    if db is not None:
+        return paper_display_title(db, day)
     date_label = day.strftime("%d %b %Y")
     return f"{briefing_title(instance_name)} — {date_label}"
 
@@ -100,7 +103,6 @@ def navigation_feed(db: Session) -> str:
 
 def briefing_feed(db: Session) -> str:
     base = _base(db)
-    instance = settings.get_value(db, "instance_name")
     papers = available_daily_papers(days=2)
     latest = datetime.combine(papers[0], datetime.min.time()) if papers else None
     updated = atom_updated(latest)
@@ -113,7 +115,7 @@ def briefing_feed(db: Session) -> str:
         kind="acquisition",
     )
     for day in papers:
-        title = briefing_entry_title(instance, day)
+        title = briefing_entry_title(db, day)
         entry = SubElement(feed, "entry")
         _text(entry, "id", f"urn:newscast:briefing:{day.isoformat()}")
         _text(entry, "title", title)

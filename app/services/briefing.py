@@ -17,6 +17,12 @@ from app.services import settings
 from app.services.categories import BUILTIN_LABELS, DEFAULT_CATEGORY, category_labels
 from app.services.cover_image import render_newspaper_cover
 from app.services.filters import story_kept
+from app.services.paper_naming import (
+    format_paper_date,
+    paper_display_title,
+    paper_download_name,
+    reader_date_format,
+)
 
 BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BRIEFING_STORIES = 20
@@ -444,6 +450,8 @@ def publish_daily_briefing(
     if created:
         payload = current_briefing_payload(db, day="today")
         payload["paper_date"] = day.isoformat()
+        payload["date_label"] = format_paper_date(day, reader_date_format(db))
+        payload["paper_title"] = paper_display_title(db, day)
         write_briefing_files(payload, stem=dated_stem(day))
     prune_old_briefings()
     if created:
@@ -516,6 +524,9 @@ def _story_body(summary: str) -> str:
 
 
 def _payload_date_label(payload: dict) -> str:
+    explicit = str(payload.get("date_label") or "").strip()
+    if explicit:
+        return explicit
     paper = str(payload.get("paper_date") or "").strip()
     if paper:
         try:
@@ -665,9 +676,10 @@ def write_epub(payload: dict, dest: Path) -> None:
     heading = payload.get("title") or "NewsCast briefing"
     date_label = _payload_date_label(payload)
     paper_day = _payload_paper_date(payload)
+    paper_title = (payload.get("paper_title") or "").strip() or f"{heading} {paper_day}"
     stories = payload.get("stories") or []
     book.set_identifier(f"newscast-{paper_day}")
-    book.set_title(f"{heading} {paper_day}")
+    book.set_title(paper_title)
     book.set_language("en")
     book.add_author("NewsCast")
 
@@ -776,8 +788,8 @@ def enqueue_latest_briefing(db: Session) -> SyncTask | None:
     path = frozen_briefing_path("today", suffix=fmt, fallback=False)
     if path is None:
         return None
-    date_part = path.stem.removeprefix("news-")
-    return enqueue_sync_file(db, path, f"NewsCast-{date_part}.{fmt}")
+    day = date.fromisoformat(path.stem.removeprefix("news-"))
+    return enqueue_sync_file(db, path, paper_download_name(db, day, suffix=fmt))
 
 
 def enqueue_sync_file(db: Session, path: Path, save_name: str, *, kind: str = "x3", save_path: str | None = None) -> SyncTask:

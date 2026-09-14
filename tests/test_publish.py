@@ -129,7 +129,7 @@ def test_x3_serves_iso_day_with_dated_filename(tmp_path: Path, monkeypatch):
     response = client.get("/api/x3/news.epub?day=2026-09-13")
     assert response.status_code == 200
     assert response.content == b"PK yesterday-paper"
-    assert "NewsCast-2026-09-13.epub" in response.headers.get("content-disposition", "")
+    assert "NewsCast%20-%202026-09-13.epub" in response.headers.get("content-disposition", "")
 
 
 def test_x3_missing_paper_is_404(tmp_path: Path, monkeypatch):

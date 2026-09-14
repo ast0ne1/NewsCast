@@ -14,6 +14,7 @@ from app.models import LibraryFile, SyncTask, utcnow
 from app.services import settings
 from app.services.briefing import BRIEFING_SAVE_RE, enqueue_sync_file, frozen_briefing_path
 from app.services.library import pretty_size
+from app.services.paper_naming import day_from_briefing_path, paper_download_name
 
 logger = logging.getLogger("newscast.reader_push")
 UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
@@ -198,8 +199,8 @@ def enqueue_frozen_briefing(db: Session) -> SyncTask | None:
     if path is None:
         return None
     dest = reader_upload_dir(db)
-    date_part = path.stem.removeprefix("news-")
-    save_name = f"NewsCast-{date_part}.epub"
+    day = day_from_briefing_path(path.stem) or datetime.now().date()
+    save_name = paper_download_name(db, day, suffix="epub")
     return enqueue_sync_file(db, path, save_name, kind="crosspoint", save_path=join(dest, save_name))
 
 

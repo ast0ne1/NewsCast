@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated
 from urllib.parse import urlparse
 
@@ -14,7 +14,7 @@ from app.auth import attach_session, clear_session, credentials_match, is_signed
 from app.config import ROOT_DIR, env
 from app.db import get_db
 from app.models import Feed, LibraryFile, Story, SyncTask, utcnow
-from app.services import backup, favicon, hostname, library, qrcode, reader_push, settings, update
+from app.services import backup, favicon, hostname, library, paper_naming, qrcode, reader_push, settings, update
 from app.services.briefing import (
     briefing_path,
     briefing_publish_at,
@@ -60,7 +60,7 @@ SETTINGS_LEDES = {
     "schedule": "How often sources refresh, when the reader newspaper publishes, and how many stories Briefing shows.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
-    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login and push when the reader is on Wi-Fi.",
+    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login, paper title pattern, and push when the reader is on Wi-Fi.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
     "update": "Check GitHub Releases and install a newer zip.",
@@ -469,6 +469,11 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "reader_ssh_port": settings.reader_ssh_port(db),
             "reader_ssh_user": settings.reader_ssh_user(db),
             "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
+            "reader_title_pattern": paper_naming.reader_title_pattern(db),
+            "reader_date_format": paper_naming.reader_date_format(db),
+            "reader_date_formats": paper_naming.DATE_FORMATS,
+            "reader_paper_label": settings.get_value(db, "reader_paper_label"),
+            "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
         },
     )
 
@@ -799,6 +804,9 @@ def save_settings(
     reader_ssh_user: Annotated[str, Form()] = "",
     reader_ssh_password: Annotated[str, Form()] = "",
     clear_reader_ssh_password: Annotated[str, Form()] = "",
+    reader_title_pattern: Annotated[str, Form()] = "",
+    reader_date_format: Annotated[str, Form()] = "iso",
+    reader_paper_label: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "device",
 ):
     tab = normalize_settings_tab(settings_tab)
@@ -889,6 +897,13 @@ def save_settings(
         settings.clear_value(db, "reader_ssh_password")
     elif reader_ssh_password.strip():
         settings.set_value(db, "reader_ssh_password", reader_ssh_password.strip())
+    settings.set_value(db, "reader_title_pattern", paper_naming.normalize_title_pattern(reader_title_pattern))
+    settings.set_value(db, "reader_date_format", paper_naming.normalize_date_format(reader_date_format))
+    label = paper_naming.normalize_paper_label(reader_paper_label)
+    if label:
+        settings.set_value(db, "reader_paper_label", label)
+    else:
+        settings.clear_value(db, "reader_paper_label")
     wanted_host = hostname.normalize_hostname(device_hostname)
     if wanted_host:
         if not hostname.valid_hostname(wanted_host):

@@ -14,6 +14,9 @@ Current version is **0.0.0.3**. New work is appended under that version until yo
 - Reader host, upload folder, and push hints follow the chosen device (CrossPoint File Transfer vs KOReader SSH)
 - OPDS navigation uses **Daily Briefings** (today and yesterday, newest first) beside Library; only published papers appear
 - Reader EPUB contents and TOC nest Category → Source → stories, with more space between entries for e-ink reading
+- Settings Reader can set the paper title/filename pattern and date style used by OPDS, EPUB metadata, and downloads
+- Settings Reader can set a custom paper label for `{label}`; Device instance name is `{instance}`
+- Settings Reader splits connection, Sync, and Paper naming into separate cards
 
 ### Fixed
 - Status OPDS and catalog links use the LAN IP when `PUBLIC_BASE_URL` is still localhost, so readers are not pointed at 127.0.0.1

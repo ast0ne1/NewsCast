@@ -65,6 +65,8 @@ DEFAULT_XTEINK_FOLDER = "/News"
 DEFAULT_KOBO_FOLDER = "/mnt/onboard/News"
 DEFAULT_KOBO_SSH_PORT = 2222
 DEFAULT_KOBO_SSH_USER = "root"
+DEFAULT_READER_TITLE_PATTERN = "NewsCast - {hostname} {instance} {date}"
+DEFAULT_READER_DATE_FORMAT = "iso"
 
 
 def format_interval_short(minutes: int | None) -> str:
@@ -106,6 +108,9 @@ UI_KEYS = (
     "reader_ssh_port",
     "reader_ssh_user",
     "reader_ssh_password",
+    "reader_title_pattern",
+    "reader_date_format",
+    "reader_paper_label",
 )
 
 
@@ -161,6 +166,10 @@ def _default_value(key: str) -> str:
         return str(DEFAULT_KOBO_SSH_PORT)
     if key == "reader_ssh_user":
         return DEFAULT_KOBO_SSH_USER
+    if key == "reader_title_pattern":
+        return DEFAULT_READER_TITLE_PATTERN
+    if key == "reader_date_format":
+        return DEFAULT_READER_DATE_FORMAT
     return ""
 
 

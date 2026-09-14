@@ -47,8 +47,8 @@ def _prep(monkeypatch, db: Session) -> None:
 
 def test_briefing_entry_title_uses_instance_and_date():
     when = datetime(2026, 9, 13, 15, 0, tzinfo=timezone.utc)
-    assert opds.briefing_entry_title("Work", when.date()) == "NewsCast · Work — 13 Sep 2026"
-    assert opds.briefing_entry_title("", date(2026, 9, 13)) == "NewsCast briefing — 13 Sep 2026"
+    assert opds.briefing_entry_title(instance_name="Work", when=when.date()) == "NewsCast · Work — 13 Sep 2026"
+    assert opds.briefing_entry_title(instance_name="", when=date(2026, 9, 13)) == "NewsCast briefing — 13 Sep 2026"
 
 
 def test_briefing_feed_lists_existing_papers_newest_first(tmp_path: Path, monkeypatch):
@@ -61,8 +61,8 @@ def test_briefing_feed_lists_existing_papers_newest_first(tmp_path: Path, monkey
     settings.set_value(db, "instance_name", "Work")
     xml = opds.briefing_feed(db)
     assert "<title>Daily Briefings</title>" in xml
-    assert "NewsCast · Work — 14 Sep 2026" in xml
-    assert "NewsCast · Work — 13 Sep 2026" in xml
+    assert "NewsCast - Work 2026-09-14" in xml
+    assert "NewsCast - Work 2026-09-13" in xml
     assert xml.index("2026-09-14") < xml.index("2026-09-13")
     assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-14" in xml
     assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-13" in xml
