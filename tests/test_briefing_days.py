@@ -37,6 +37,7 @@ def test_today_vs_yesterday_selection(monkeypatch):
                 cluster_key="t",
                 published_at=now,
                 created_at=now,
+                importance=3,
             ),
             Story(
                 title="Yesterday story",
@@ -47,6 +48,7 @@ def test_today_vs_yesterday_selection(monkeypatch):
                 cluster_key="y",
                 published_at=now - timedelta(days=1),
                 created_at=now - timedelta(days=1),
+                importance=3,
             ),
             Story(
                 title="Saved long-read",
@@ -58,6 +60,7 @@ def test_today_vs_yesterday_selection(monkeypatch):
                 saved=True,
                 published_at=now - timedelta(days=3),
                 created_at=now - timedelta(days=3),
+                importance=3,
             ),
         ]
     )

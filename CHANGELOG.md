@@ -1,6 +1,17 @@
-# Changelog
+﻿# Changelog
 
-Current version is **0.0.0.4**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.5**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.5 — 2026-09-14
+
+### Added
+- Stories get an importance score from 1–5 (LLM when configured, heuristics otherwise); Settings Schedule can keep only stories at or above a threshold (default 3+)
+- Status Health card shows disk free space, database size, failing feeds with error details, and the last AI error
+- Status Delivery card shows last published time, last successful push, queue age, and a trust line such as "Morning paper is on the reader"
+
+### Changed
+- Daily EPUB/TXT papers open with a masthead of story counts by category and denser cover digest blurbs
+- Settings Schedule and Reader Sync show a short delivery snapshot (published / last push / queue)
 
 ## 0.0.0.4 — 2026-09-14
 

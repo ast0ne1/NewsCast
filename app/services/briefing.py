@@ -97,6 +97,24 @@ a { color: #111; text-decoration: underline; }
   padding: 0;
   line-height: 1.4;
 }
+.contents ol.toc-stories li .toc-title {
+  display: block;
+  font-weight: bold;
+  margin: 0 0 0.2em;
+}
+.contents ol.toc-stories li .toc-digest {
+  display: block;
+  font-size: 0.92em;
+  font-weight: normal;
+  font-style: normal;
+  color: #333;
+  line-height: 1.35;
+}
+.masthead {
+  margin: 0 0 0.75em;
+  font-style: italic;
+  color: #333;
+}
 .story { page-break-before: always; }
 .story h1 { margin-bottom: 0.45em; }
 .story .body p { margin-bottom: 0.85em; }
@@ -169,6 +187,55 @@ def _apply_keyword_filters(db: Session, stories: list[Story]) -> list[Story]:
     include = settings.get_value(db, "keyword_include")
     exclude = settings.get_value(db, "keyword_exclude")
     return [story for story in stories if story_kept(story, feeds, include, exclude)]
+
+
+def _story_category(story: Story, feeds: dict[str, Feed]) -> str:
+    if getattr(story, "saved", False):
+        return SAVED_CATEGORY
+    feed = feeds.get(story.source_name)
+    return getattr(feed, "category", None) or DEFAULT_CATEGORY
+
+
+def _apply_importance_filter(db: Session, stories: list[Story]) -> list[Story]:
+    from app.services.importance import effective_importance
+
+    minimum = settings.briefing_min_importance(db)
+    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+    kept: list[Story] = []
+    for story in stories:
+        if getattr(story, "saved", False) or getattr(story, "favourited", False):
+            kept.append(story)
+            continue
+        if effective_importance(story, category=_story_category(story, feeds)) >= minimum:
+            kept.append(story)
+    return kept
+
+
+def digest_blurb(summary: str, *, limit: int = 160) -> str:
+    text = summary or ""
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    compact = " ".join(text.split()).strip()
+    if not compact:
+        return ""
+    for sep in (". ", "! ", "? "):
+        index = compact.find(sep)
+        if 8 <= index <= limit:
+            return compact[: index + 1].strip()
+    if len(compact) <= limit:
+        return compact
+    clipped = compact[: limit - 1].rsplit(" ", 1)[0]
+    return (clipped or compact[: limit - 1]).rstrip(".,;:") + "…"
+
+
+def masthead_line(stories: list[dict]) -> str:
+    if not stories:
+        return "No stories yet"
+    total = len(stories)
+    parts = [f"{total} stor{'y' if total == 1 else 'ies'}"]
+    for _key, label, group in group_stories(stories):
+        parts.append(f"{len(group)} {label.lower()}")
+    return " · ".join(parts)
 
 
 def retention_cutoff() -> datetime:
@@ -255,7 +322,8 @@ def current_stories(db: Session, limit: int | None = None, day: str | None = Non
             seen.add(story.id)
     feed_stories = [story for story in stories if not story.saved]
     feed_stories.sort(key=lambda story: story.published_at or story.created_at or cutoff, reverse=True)
-    return _apply_keyword_filters(db, [*saved, *feed_stories])
+    filtered = _apply_keyword_filters(db, [*saved, *feed_stories])
+    return _apply_importance_filter(db, filtered)
 
 
 def search_stories(db: Session, query: str, limit: int = 50) -> list[Story]:
@@ -649,6 +717,8 @@ def stories_payload(
 def render_txt(payload: dict) -> str:
     lines = [payload.get("title") or "NewsCast briefing", payload["generated_at"], ""]
     stories = payload.get("stories") or []
+    lines.append(masthead_line(stories))
+    lines.append("")
     if not stories:
         lines.append("No stories yet. Refresh from the NewsCast UI.")
         return "\n".join(lines) + "\n"
@@ -696,8 +766,7 @@ def write_epub(payload: dict, dest: Path) -> None:
         f'<p class="meta">{html.escape(date_label)}</p>',
     ]
     if stories:
-        count = len(stories)
-        cover_bits.append(f'<p class="meta">{count} stor{"y" if count == 1 else "ies"}</p>')
+        cover_bits.append(f'<p class="masthead">{html.escape(masthead_line(stories))}</p>')
         cover_bits.append('<hr class="cover-rule"/>')
         cover_bits.append('<div class="contents"><h2>Contents</h2>')
         for _key, label, group in groups:
@@ -706,11 +775,18 @@ def write_epub(payload: dict, dest: Path) -> None:
                 cover_bits.append(f'<div class="toc-source"><h4>{html.escape(source)}</h4>')
                 cover_bits.append('<ol class="toc-stories">')
                 for story in source_stories:
-                    cover_bits.append(f"<li>{html.escape(story.get('title') or 'Untitled')}</li>")
+                    title = story.get("title") or "Untitled"
+                    blurb = digest_blurb(story.get("summary") or "")
+                    cover_bits.append("<li>")
+                    cover_bits.append(f'<span class="toc-title">{html.escape(title)}</span>')
+                    if blurb:
+                        cover_bits.append(f'<span class="toc-digest">{html.escape(blurb)}</span>')
+                    cover_bits.append("</li>")
                 cover_bits.append("</ol></div>")
             cover_bits.append("</div>")
         cover_bits.append("</div>")
     else:
+        cover_bits.append(f'<p class="masthead">{html.escape(masthead_line(stories))}</p>')
         cover_bits.append("<p>No stories yet.</p>")
 
     cover = epub.EpubHtml(title="Cover", file_name="cover.xhtml", lang="en")

@@ -21,10 +21,75 @@
     <p class="stat-value">{{ story_count }}</p>
   </li>
   <li class="card stat">
-    <p class="stat-label">Last reader task</p>
-    <p class="stat-value">{{ last_task.status.replace('_', ' ')|capitalize if last_task else 'None' }}</p>
+    <p class="stat-label">Last push</p>
+    <p class="stat-value stat-value-sm">{{ delivery.last_push_label or 'None' }}</p>
   </li>
 </ul>
+
+<div class="card stack">
+  <h2>Delivery</h2>
+  <p class="lede delivery-trust">{{ delivery.trust }}</p>
+  <ul class="stack health-list">
+    <li>
+      <p class="stat-label">Last published</p>
+      <p>{% if delivery.published_label %}{{ delivery.published_label }}{% else %}Not yet — scheduled {{ delivery.publish_at }}{% endif %}</p>
+    </li>
+    <li>
+      <p class="stat-label">Last successful push</p>
+      <p>
+        {% if delivery.last_push_label %}
+          {{ delivery.last_push_label }}{% if delivery.last_push_item %} · {{ delivery.last_push_item }}{% endif %}
+        {% else %}
+          None yet
+        {% endif %}
+      </p>
+    </li>
+    <li>
+      <p class="stat-label">Queue</p>
+      <p>
+        {% if delivery.pending %}
+          {{ delivery.pending }} file{{ 's' if delivery.pending != 1 else '' }} waiting{% if delivery.queue_age_label %} (oldest {{ delivery.queue_age_label }}){% endif %}
+        {% else %}
+          Nothing queued
+        {% endif %}
+      </p>
+    </li>
+  </ul>
+</div>
+
+<div class="card stack">
+  <h2>Health</h2>
+  <ul class="stack health-list">
+    <li>
+      <p class="stat-label">Disk</p>
+      <p>{{ health.disk_label }}</p>
+    </li>
+    <li>
+      <p class="stat-label">Database</p>
+      <p>{{ health.db_label }}</p>
+    </li>
+    <li>
+      <p class="stat-label">Failing feeds</p>
+      {% if health.failing_feeds %}
+        <p>{{ health.failing_label }}</p>
+        <ul class="health-failing">
+          {% for item in health.failing_items %}
+          <li>
+            <a class="text-link" href="/feeds#feed-{{ item.id }}">{{ item.name }}</a>
+            <p class="hint is-error">{{ item.error }}</p>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>{{ health.failing_label }}</p>
+      {% endif %}
+    </li>
+    <li>
+      <p class="stat-label">Last AI error</p>
+      <p class="{% if health.ai_error %}is-error{% endif %}">{{ health.ai_label }}</p>
+    </li>
+  </ul>
+</div>
 
 <div class="card stack links-card">
   <h2>Reader</h2>

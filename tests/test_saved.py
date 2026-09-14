@@ -98,6 +98,7 @@ def test_current_saved_and_briefing_order(monkeypatch):
             cluster_key="f",
             created_at=now,
             published_at=now,
+            importance=3,
         )
     )
     db.commit()

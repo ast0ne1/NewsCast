@@ -25,7 +25,7 @@
 
 <ul class="feed-list">
   {% for feed in feeds %}
-  <li class="card feed-card {% if not feed.enabled %}is-off{% endif %}" data-category="{{ feed.category }}">
+  <li id="feed-{{ feed.id }}" class="card feed-card {% if not feed.enabled %}is-off{% endif %}" data-category="{{ feed.category }}">
     <header class="feed-head">
       <div class="feed-copy">
         <h2 class="feed-title">{% if favicons.get(feed.name) %}<img class="source-icon source-icon-lg" src="{{ favicons[feed.name] }}" alt="" width="20" height="20">{% endif %}{{ feed.name }}</h2>

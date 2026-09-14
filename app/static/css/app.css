@@ -1057,6 +1057,28 @@ select:focus-visible {
   text-transform: uppercase;
 }
 .stat-value { margin: 8px 0 0; font-family: var(--serif); font-size: 1.7rem; }
+.stat-value-sm { font-size: 1.05rem; line-height: 1.3; }
+.delivery-trust { margin: 0; }
+
+.health-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.health-list .stat-label { margin-bottom: 4px; }
+.health-list .is-error { color: var(--error); }
+.health-failing {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.health-failing .hint {
+  margin: 4px 0 0;
+}
 
 .stack { display: grid; gap: 14px; }
 .panel {

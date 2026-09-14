@@ -25,6 +25,7 @@ def _story(db: Session, **kwargs) -> Story:
         published_at=kwargs.get("published_at", now),
         created_at=kwargs.get("created_at", now),
         favourited=kwargs.get("favourited", False),
+        importance=kwargs.get("importance", 3),
     )
     db.add(story)
     db.commit()

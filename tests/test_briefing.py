@@ -39,6 +39,7 @@ def test_txt_briefing_includes_story():
     payload = stories_payload([FakeStory()])
     text = render_txt(payload)
     assert "NewsCast briefing" in text
+    assert "1 story" in text
     assert "Test headline" in text
     assert "A short summary." in text
     assert "13 Sep 2026" in text

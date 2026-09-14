@@ -28,6 +28,8 @@ from app.services.briefing import (
     search_stories,
 )
 from app.services.health import feed_health, feed_health_label
+from app.services.system_stats import status_health
+from app.services.delivery import delivery_status
 from app.services.schedule import feed_is_muted, normalize_optional_clock
 from app.services import saved as saved_articles
 from app.services.catalog import catalog_with_status, grouped_catalog
@@ -385,17 +387,17 @@ def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
 @router.get("/status")
 def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     story_count = db.query(Story).count()
-    last_task = db.query(SyncTask).order_by(SyncTask.created_at.desc()).first()
     share_url = hostname.get_share_url(db)
     reader = reader_push.snapshot(db, probe=False)
+    delivery = delivery_status(db)
     return templates.TemplateResponse(
         request,
         "status.html",
         {
             **_base_context(request, db, "status"),
             "story_count": story_count,
-            "last_task": last_task,
             "reader": reader,
+            "delivery": delivery,
             "public_base_url": hostname.get_public_base_url(db),
             "share_url": share_url,
             "lan_url": hostname.get_lan_url(),
@@ -408,6 +410,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "update_check": update.last_check(db),
             "paper": paper_status(db),
             "reader_device": settings.reader_device(db),
+            "health": status_health(db),
         },
     )
 
@@ -459,6 +462,8 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "ingest_active_end": settings.get_value(db, "ingest_active_end"),
             "briefing_limits": settings.BRIEFING_LIMITS,
             "briefing_limit": settings.briefing_limit(db),
+            "importance_min_choices": settings.IMPORTANCE_MIN_CHOICES,
+            "briefing_min_importance": settings.briefing_min_importance(db),
             "briefing_publish_at": briefing_publish_at(db),
             "github_repo": update.repo_from_db(db),
             "update_check": update.last_check(db),
@@ -482,6 +487,7 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "reader_date_previews": paper_naming.date_format_previews(date.today()),
             "reader_paper_label": settings.get_value(db, "reader_paper_label"),
             "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
+            "delivery": delivery_status(db),
         },
     )
 
@@ -830,6 +836,7 @@ def save_settings(
     ingest_active_start: Annotated[str, Form()] = "",
     ingest_active_end: Annotated[str, Form()] = "",
     briefing_limit: Annotated[str, Form()] = "",
+    briefing_min_importance: Annotated[str, Form()] = "",
     briefing_publish_at: Annotated[str, Form()] = "",
     github_repo: Annotated[str, Form()] = "",
     keyword_include: Annotated[str, Form()] = "",
@@ -975,6 +982,14 @@ def save_settings(
         if limit not in settings.BRIEFING_LIMIT_VALUES:
             return _settings_error(request, "Choose 10, 20, 30, 40, or 50 stories.", tab)
         settings.set_value(db, "briefing_limit", str(limit))
+    if briefing_min_importance.strip():
+        try:
+            minimum = int(briefing_min_importance)
+        except ValueError:
+            return _settings_error(request, "Paper importance must be a number from 1 to 5.", tab)
+        if minimum not in settings.IMPORTANCE_MIN_VALUES:
+            return _settings_error(request, "Choose a paper importance threshold from 1 to 5.", tab)
+        settings.set_value(db, "briefing_min_importance", str(minimum))
     if briefing_publish_at.strip():
         settings.set_value(db, "briefing_publish_at", normalize_publish_at(briefing_publish_at))
     repo = update.normalize_repo(github_repo)

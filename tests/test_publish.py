@@ -53,6 +53,7 @@ def _seed_story(db: Session) -> None:
             cluster_key="m",
             published_at=when,
             created_at=when,
+            importance=3,
         )
     )
     db.commit()

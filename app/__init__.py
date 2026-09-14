@@ -1,3 +1,3 @@
-__version__ = "0.0.0.4"
-__asset_rev__ = "20260914i"
+__version__ = "0.0.0.5"
+__asset_rev__ = "20260914l"
 __author__ = "Adam Stone"

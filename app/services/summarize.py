@@ -77,6 +77,7 @@ def summarize_story(
     api_key: str,
     model: str,
     base_url: str | None = None,
+    db=None,
 ) -> str:
     if not api_key or not model:
         return fallback_summary(title, excerpt)
@@ -88,21 +89,30 @@ def summarize_story(
         f"Source text:\n{(excerpt or title)[:4000]}\n\n"
         "Write only the summary sentences. No introduction."
     )
-    response = client.chat.completions.create(
-        model=model or "gpt-4o-mini",
-        temperature=0.2,
-        max_tokens=220,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user},
-        ],
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model or "gpt-4o-mini",
+            temperature=0.2,
+            max_tokens=220,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user},
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        from app.services.importance import record_ai_error
+
+        record_ai_error(db, f"Summarise failed: {exc}")
+        raise
     text = (response.choices[0].message.content or "").strip()
     cleaned = clean_summary(text, title=title, excerpt=excerpt)
+    from app.services.importance import clear_ai_error
+
+    clear_ai_error(db)
     return cleaned or fallback_summary(title, excerpt)
 
 
-def summarize_with_config(title: str, excerpt: str, source: str, config: LlmConfig) -> str:
+def summarize_with_config(title: str, excerpt: str, source: str, config: LlmConfig, db=None) -> str:
     if not config.ready:
         return fallback_summary(title, excerpt)
     return summarize_story(
@@ -112,6 +122,7 @@ def summarize_with_config(title: str, excerpt: str, source: str, config: LlmConf
         config.api_key,
         config.model,
         base_url=config.base_url,
+        db=db,
     )
 
 

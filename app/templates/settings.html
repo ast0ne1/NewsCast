@@ -136,10 +136,20 @@
       </label>
       <p class="hint">The Briefing tab stays live. The reader EPUB uses this cap and freezes at publish time.</p>
       <label>
+        Paper includes stories rated
+        <select name="briefing_min_importance">
+          {% for value, label in importance_min_choices %}
+          <option value="{{ value }}" {% if briefing_min_importance == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">New stories get an importance score from 1 (ignore) to 5 (major). Favourites and Saved long-reads always stay in the paper.</p>
+      <label>
         Publish at
         <input type="time" name="briefing_publish_at" value="{{ briefing_publish_at }}" />
       </label>
       <p class="hint">Local time on this machine. After this time NewsCast writes today’s dated EPUB and keeps about a week of papers.</p>
+      <p class="hint">{{ delivery.hint }}</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>
@@ -301,6 +311,7 @@
       </label>
       <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
       <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
+      <p class="hint">{{ delivery.hint }}</p>
     </div>
 
     <div class="card stack" data-paper-naming>

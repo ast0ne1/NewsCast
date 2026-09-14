@@ -225,6 +225,8 @@ def _task_folder(task: SyncTask, default: str) -> str:
 
 
 def flush_pending(db: Session) -> dict:
+    from app.services.delivery import briefing_day_for_task, mark_briefing_pushed
+
     host = reader_host(db)
     dest = reader_upload_dir(db)
     tasks = pending_crosspoint(db)
@@ -232,6 +234,7 @@ def flush_pending(db: Session) -> dict:
     if not online:
         return {"ok": False, "online": False, "uploaded": 0, "pending": len(tasks), "host": host}
     uploaded = 0
+    today = datetime.now().astimezone().date()
     for task in tasks:
         path = Path(task.file_path)
         if not path.exists():
@@ -243,6 +246,8 @@ def flush_pending(db: Session) -> dict:
             task.status = "complete"
             task.completed_at = utcnow()
             uploaded += 1
+            if briefing_day_for_task(task) == today:
+                mark_briefing_pushed(db, today)
         except Exception as exc:  # noqa: BLE001
             logger.warning("upload failed for %s: %s", path.name, exc)
     db.commit()

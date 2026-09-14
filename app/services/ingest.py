@@ -412,13 +412,15 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                 continue
             clusters[item["cluster_key"] or item["url"]] = item
 
+        from app.services.importance import score_importance
         from app.services.summarize import summarize_with_config
 
+        feed_by_name = {feed.name: feed for feed in feeds}
         for item in clusters.values():
             excerpt = item.get("excerpt") or ""
             if item.get("summarize", True):
                 try:
-                    summary = summarize_with_config(item["title"], excerpt, item["source"], llm)
+                    summary = summarize_with_config(item["title"], excerpt, item["source"], llm, db=db)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("summarize failed for %s: %s", item["title"], exc)
                     from app.services.summarize import fallback_summary
@@ -426,6 +428,16 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                     summary = fallback_summary(item["title"], excerpt)
             else:
                 summary = excerpt.strip() or item["title"]
+            feed = feed_by_name.get(item["source"])
+            category = getattr(feed, "category", None) or "news"
+            importance = score_importance(
+                item["title"],
+                excerpt,
+                source=item["source"],
+                category=category,
+                config=llm,
+                db=db,
+            )
             db.add(
                 Story(
                     title=item["title"],
@@ -436,6 +448,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                     content_hash=item["content_hash"],
                     cluster_key=item["cluster_key"],
                     raw_excerpt=excerpt[:4000],
+                    importance=importance,
                 )
             )
             created += 1

@@ -54,6 +54,15 @@ BRIEFING_LIMITS = [
 ]
 BRIEFING_LIMIT_VALUES = {value for value, _label in BRIEFING_LIMITS}
 DEFAULT_BRIEFING_LIMIT = 20
+IMPORTANCE_MIN_CHOICES = [
+    (1, "1+ — Include all scored"),
+    (2, "2+ — Interesting and above"),
+    (3, "3+ — Worth reading and above"),
+    (4, "4+ — Important and major only"),
+    (5, "5 — Major stories only"),
+]
+IMPORTANCE_MIN_VALUES = {value for value, _label in IMPORTANCE_MIN_CHOICES}
+DEFAULT_MIN_IMPORTANCE = 3
 READER_DEVICES = [
     ("xteink", "Xteink — CrossPoint"),
     ("kobo", "Kobo — KOReader"),
@@ -98,6 +107,7 @@ UI_KEYS = (
     "ingest_active_start",
     "ingest_active_end",
     "briefing_limit",
+    "briefing_min_importance",
     "briefing_publish_at",
     "device_hostname",
     "github_repo",
@@ -158,6 +168,8 @@ def _default_value(key: str) -> str:
         return "60"
     if key == "briefing_limit":
         return str(DEFAULT_BRIEFING_LIMIT)
+    if key == "briefing_min_importance":
+        return str(DEFAULT_MIN_IMPORTANCE)
     if key == "briefing_publish_at":
         return "06:30"
     if key == "reader_device":
@@ -280,6 +292,11 @@ def catalog_username(db: Session) -> str:
 def briefing_limit(db: Session) -> int:
     value = get_int(db, "briefing_limit", DEFAULT_BRIEFING_LIMIT)
     return value if value in BRIEFING_LIMIT_VALUES else DEFAULT_BRIEFING_LIMIT
+
+
+def briefing_min_importance(db: Session) -> int:
+    value = get_int(db, "briefing_min_importance", DEFAULT_MIN_IMPORTANCE)
+    return value if value in IMPORTANCE_MIN_VALUES else DEFAULT_MIN_IMPORTANCE
 
 
 def get_int(db: Session, key: str, fallback: int) -> int:

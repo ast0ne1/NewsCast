@@ -72,6 +72,8 @@ def _ensure_schema() -> None:
             conn.execute(text("ALTER TABLE stories ADD COLUMN expires_at DATETIME"))
         if "saved_origin" not in story_cols:
             conn.execute(text("ALTER TABLE stories ADD COLUMN saved_origin VARCHAR(20)"))
+        if "importance" not in story_cols:
+            conn.execute(text("ALTER TABLE stories ADD COLUMN importance INTEGER"))
         task_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(sync_tasks)")).fetchall()}
         if "kind" not in task_cols:
             conn.execute(text("ALTER TABLE sync_tasks ADD COLUMN kind VARCHAR(20) DEFAULT 'x3'"))

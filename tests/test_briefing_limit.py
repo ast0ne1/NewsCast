@@ -41,6 +41,7 @@ def test_current_stories_uses_saved_briefing_limit(monkeypatch):
                 cluster_key=str(index),
                 published_at=now,
                 created_at=now,
+                importance=3,
             )
         )
     db.commit()

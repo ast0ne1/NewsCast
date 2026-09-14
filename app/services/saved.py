@@ -125,6 +125,8 @@ def save_article(
         existing.saved = True
         existing.saved_origin = saved_origin
         existing.expires_at = expires_at
+        if existing.importance is None:
+            existing.importance = 3
         db.commit()
         db.refresh(existing)
         _capture_favicon(canonical)
@@ -142,6 +144,7 @@ def save_article(
         saved=True,
         saved_origin=saved_origin,
         expires_at=expires_at,
+        importance=3,
     )
     db.add(story)
     db.commit()
