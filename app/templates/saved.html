@@ -3,13 +3,13 @@
 {% block content %}
 <section class="hero">
   <h1>Saved</h1>
-  <p class="lede">Paste an article URL. NewsCast scrapes the full text for later reading on the reader. Items drop off after the expiry you set, or when you remove them.</p>
+  <p class="lede">Long-reads from Briefing and URLs you paste here. Items drop off after the expiry you set, or when you remove them.</p>
 </section>
 
 <form method="post" action="/saved" class="card panel saved-form" data-busy-label="Saving…">
   <div class="panel-head">
     <h2>Add article</h2>
-    <p class="hint">This is a one-off source, not a feed. It stays on this tab until you remove it or it expires.</p>
+    <p class="hint">Paste a URL for a one-off article. Bookmarking on Briefing also lands here as a long-read.</p>
   </div>
   <div class="panel-form">
     <p class="error-text" hidden data-form-error></p>
@@ -40,6 +40,7 @@
     <div class="story-kicker">
       {% if item.favicon %}<img class="source-icon" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}
       <p class="chip chip-source">{{ item.source_name }}</p>
+      <p class="chip chip-quiet">{{ item.origin_label }}</p>
       <p class="chip chip-quiet">Full article</p>
       {% if item.expires_at %}
       <time class="chip chip-quiet story-date" datetime="{{ item.expires_at.isoformat() }}">Until {{ item.expires_at.strftime('%d %b %Y') }}</time>
@@ -61,7 +62,7 @@
 {% else %}
 <div class="empty card">
   <h2>Nothing saved yet</h2>
-  <p>Add a URL above. The full article is stored here and included in the next reader briefing.</p>
+  <p>Add a URL above, or bookmark a story on Briefing. Full articles are stored here and included in the next reader briefing.</p>
 </div>
 {% endif %}
 {% endblock %}

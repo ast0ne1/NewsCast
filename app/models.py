@@ -52,6 +52,7 @@ class Story(Base):
     raw_excerpt: Mapped[str] = mapped_column(Text, default="")
     favourited: Mapped[bool] = mapped_column(Boolean, default=False)
     saved: Mapped[bool] = mapped_column(Boolean, default=False)
+    saved_origin: Mapped[str | None] = mapped_column(String(20), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

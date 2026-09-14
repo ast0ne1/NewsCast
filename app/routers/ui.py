@@ -28,7 +28,7 @@ from app.services.briefing import (
     search_stories,
 )
 from app.services.health import feed_health, feed_health_label
-from app.services.schedule import feed_is_muted
+from app.services.schedule import feed_is_muted, normalize_optional_clock
 from app.services import saved as saved_articles
 from app.services.catalog import catalog_with_status, grouped_catalog
 from app.services.categories import category_labels, list_categories
@@ -48,6 +48,7 @@ SETTINGS_TABS = (
     ("llm", "LLM"),
     ("reader", "Reader"),
     ("categories", "Categories"),
+    ("catalog", "Catalog"),
     ("backup", "Backup/Restore"),
     ("update", "Update"),
     ("about", "About"),
@@ -62,6 +63,7 @@ SETTINGS_LEDES = {
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
     "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login, paper title pattern, and push when the reader is on Wi-Fi.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
+    "catalog": "Import a country or industry package, or export one of your categories as JSON to share.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
     "update": "Check GitHub Releases and install a newer zip.",
     "about": "What NewsCast is, who wrote it, and the version running here.",
@@ -252,7 +254,7 @@ def save_story_longread(
             return JSONResponse({"ok": True, "saved": True, "message": "Already on Saved."})
         return RedirectResponse("/saved", status_code=303)
     try:
-        saved_articles.save_article(db, story.canonical_url, "7", "")
+        saved_articles.save_article(db, story.canonical_url, "7", "", origin=saved_articles.ORIGIN_BRIEFING)
     except ValueError as exc:
         return _form_error(request, str(exc), nxt)
     if _wants_json(request):
@@ -301,6 +303,7 @@ def saved_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             favicon.host_key(item.canonical_url),
             favicon.host_key(favicon.homepage_url(item.canonical_url)),
         )
+        item.origin_label = saved_articles.saved_origin_label(getattr(item, "saved_origin", None))
     return templates.TemplateResponse(
         request,
         "saved.html",
@@ -321,7 +324,7 @@ def save_article_form(
     custom_date: Annotated[str, Form()] = "",
 ):
     try:
-        story = saved_articles.save_article(db, url, keep_days, custom_date)
+        story = saved_articles.save_article(db, url, keep_days, custom_date, origin=saved_articles.ORIGIN_MANUAL)
     except ValueError as exc:
         return _form_error(request, str(exc), "/saved")
     if _wants_json(request):
@@ -375,7 +378,6 @@ def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "catalog": grouped_catalog(db),
             "custom_feeds": db.query(Feed).filter(Feed.catalog_id.is_(None)).order_by(Feed.name.asc()).all(),
             "category_labels": category_labels(db),
-            "export_categories": list_categories(db),
         },
     )
 
@@ -453,12 +455,15 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "app_port": env.port,
             "refresh_intervals": settings.REFRESH_INTERVALS,
             "global_interval": settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes),
+            "ingest_active_start": settings.get_value(db, "ingest_active_start"),
+            "ingest_active_end": settings.get_value(db, "ingest_active_end"),
             "briefing_limits": settings.BRIEFING_LIMITS,
             "briefing_limit": settings.briefing_limit(db),
             "briefing_publish_at": briefing_publish_at(db),
             "github_repo": update.repo_from_db(db),
             "update_check": update.last_check(db),
             "categories": list_categories(db),
+            "export_categories": list_categories(db),
             "latest_backup": backup.latest_backup(),
             "keyword_include": settings.get_value(db, "keyword_include"),
             "keyword_exclude": settings.get_value(db, "keyword_exclude"),
@@ -473,6 +478,8 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "reader_title_pattern": paper_naming.reader_title_pattern(db),
             "reader_date_format": paper_naming.reader_date_format(db),
             "reader_date_formats": paper_naming.DATE_FORMATS,
+            "reader_title_tokens": paper_naming.TITLE_TOKENS,
+            "reader_date_previews": paper_naming.date_format_previews(date.today()),
             "reader_paper_label": settings.get_value(db, "reader_paper_label"),
             "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
         },
@@ -820,6 +827,8 @@ def save_settings(
     x3_device_id: Annotated[str, Form()] = "",
     device_hostname: Annotated[str, Form()] = "",
     ingest_interval_minutes: Annotated[str, Form()] = "",
+    ingest_active_start: Annotated[str, Form()] = "",
+    ingest_active_end: Annotated[str, Form()] = "",
     briefing_limit: Annotated[str, Form()] = "",
     briefing_publish_at: Annotated[str, Form()] = "",
     github_repo: Annotated[str, Form()] = "",
@@ -948,6 +957,16 @@ def save_settings(
                 settings.set_value(db, "ingest_interval_minutes", str(minutes))
         except ValueError:
             return _settings_error(request, "Refresh interval must be a number of minutes.", tab)
+    start_clock = normalize_optional_clock(ingest_active_start)
+    end_clock = normalize_optional_clock(ingest_active_end)
+    if start_clock:
+        settings.set_value(db, "ingest_active_start", start_clock)
+    else:
+        settings.clear_value(db, "ingest_active_start")
+    if end_clock:
+        settings.set_value(db, "ingest_active_end", end_clock)
+    else:
+        settings.clear_value(db, "ingest_active_end")
     if briefing_limit.strip():
         try:
             limit = int(briefing_limit)
@@ -1086,18 +1105,19 @@ def import_package_form(
     file: UploadFile = File(...),
 ):
     raw = file.file.read()
+    next_path = settings_path("catalog")
     try:
         result = package_service.import_package(db, json.loads(raw.decode("utf-8")))
     except (ValueError, UnicodeDecodeError) as exc:
-        return _form_error(request, str(exc), "/catalog")
+        return _form_error(request, str(exc), next_path)
     except Exception:
-        return _form_error(request, "That file is not valid package JSON.", "/catalog")
+        return _form_error(request, "That file is not valid package JSON.", next_path)
     added = result["created"]
     name = result["package"]["name"]
     message = f"Imported {name}. {added} new source{'s' if added != 1 else ''} added to the catalog."
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message})
-    return RedirectResponse("/catalog", status_code=303)
+    return RedirectResponse(next_path, status_code=303)
 
 
 @router.get("/catalog/packages/export")
@@ -1105,7 +1125,7 @@ def export_package(db: Annotated[Session, Depends(get_db)], category: str = ""):
     try:
         package = package_service.export_category(db, category, catalog_with_status(db))
     except ValueError:
-        return RedirectResponse("/catalog", status_code=303)
+        return RedirectResponse(settings_path("catalog"), status_code=303)
     filename = f"{package['id']}.json"
     return Response(
         json.dumps(package, indent=2) + "\n",

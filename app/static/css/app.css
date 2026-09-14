@@ -842,8 +842,25 @@ select:focus-visible {
 }
 .schedule-form .btn { justify-self: start; }
 .error-text { color: var(--error); }
-
+.schedule-hours {
+  display: grid;
+  gap: 10px;
+}
+.token-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.token-chips .chip-btn {
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+}
 @media (min-width: 560px) {
+  .schedule-hours {
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+  }
   .schedule-form {
     grid-template-columns: 1fr 1fr;
     align-items: end;

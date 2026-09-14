@@ -123,9 +123,34 @@ def test_save_article_stores_full_text(monkeypatch):
     db = _session()
     story = save_article(db, "https://example.com/long-read", "7", "")
     assert story.saved is True
+    assert story.saved_origin == "manual"
     assert story.title == "Hello there"
     assert "e-ink" in story.summary
     assert story.expires_at is not None
+
+
+def test_save_article_origin_briefing(monkeypatch):
+    html = "<html><head><title>Hello</title></head><body><p>Enough words to count as a full article for later reading on the e-ink device.</p></body></html>"
+    monkeypatch.setattr("app.services.saved._http_get_html", lambda url: html)
+    monkeypatch.setattr(
+        "app.services.saved.trafilatura.extract",
+        lambda *_args, **_kwargs: (
+            "Enough words to count as a full article for later reading on the e-ink device, "
+            "including the body of the piece as scraped from the page."
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.saved.trafilatura.extract_metadata",
+        lambda *_args, **_kwargs: type("M", (), {"title": "Hello there"})(),
+    )
+    monkeypatch.setattr("app.services.favicon.ensure_favicon", lambda *_args, **_kwargs: None)
+    db = _session()
+    story = save_article(db, "https://example.com/from-briefing", "7", "", origin="briefing")
+    assert story.saved_origin == "briefing"
+    from app.services.saved import saved_origin_label
+
+    assert saved_origin_label(story.saved_origin) == "From Briefing"
+    assert saved_origin_label("manual") == "Added URL"
 
 
 def test_normalize_article_url_adds_https():

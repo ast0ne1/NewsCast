@@ -14,6 +14,7 @@ def test_settings_tab_defaults_and_aliases():
 
 def test_settings_path_keeps_known_tabs():
     assert settings_path("categories") == "/settings?tab=categories"
+    assert settings_path("catalog") == "/settings?tab=catalog"
     assert settings_path("filters") == "/settings?tab=filters"
     assert settings_path("mystery") == "/settings?tab=device"
     assert settings_path("access") == "/settings?tab=device"
@@ -24,6 +25,7 @@ def test_settings_path_keeps_known_tabs():
         "llm",
         "reader",
         "categories",
+        "catalog",
         "backup",
         "update",
         "about",

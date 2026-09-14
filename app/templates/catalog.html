@@ -5,34 +5,13 @@
 <section class="hero hero-row">
   <div>
     <h1>Catalog</h1>
-    <p class="lede">Browse this library and tap Add or Remove. Import a country or industry package, or export one of your categories as a JSON file to share. Nordic sources are translated to English before they reach the briefing. Use the plus button only for a source that is not listed.</p>
+    <p class="lede">Browse this library and tap Add or Remove. Nordic sources are translated to English before they reach the briefing. Use the plus button only for a source that is not listed. Import and export packages under Settings → Catalog.</p>
   </div>
   <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
     <span>Add custom</span>
   </button>
 </section>
-
-<div class="card stack package-toolbar">
-  <form method="post" action="/catalog/packages/import">
-    <label>
-      Import package
-      <input type="file" name="file" accept=".json,application/json" required />
-    </label>
-    <button class="btn btn-secondary" type="submit">Import</button>
-  </form>
-  <form method="get" action="/catalog/packages/export" data-native>
-    <label>
-      Export category
-      <select name="category" data-export-category>
-        {% for category in export_categories %}
-        <option value="{{ category.key }}">{{ category.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button class="btn btn-secondary" type="submit">Export</button>
-  </form>
-</div>
 
 <div data-filter-root>
 <div class="chips-stack">

@@ -111,6 +111,17 @@
         </select>
       </label>
       <p class="hint">Sources set to Global use this. Custom sources keep their own interval. Refresh now still fetches every enabled source.</p>
+      <div class="schedule-hours">
+        <label>
+          Active from
+          <input type="time" name="ingest_active_start" value="{{ ingest_active_start }}" />
+        </label>
+        <label>
+          Active until
+          <input type="time" name="ingest_active_end" value="{{ ingest_active_end }}" />
+        </label>
+      </div>
+      <p class="hint">Optional local hours for Global sources only. Example: every hour from 09:00 until 12:00. Leave either blank for all day. Custom sources ignore this window.</p>
     </div>
 
     <div class="card stack">
@@ -292,27 +303,32 @@
       <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
     </div>
 
-    <div class="card stack">
+    <div class="card stack" data-paper-naming>
       <h2>Paper naming</h2>
       <label>
         Paper label
-        <input type="text" name="reader_paper_label" value="{{ reader_paper_label }}" autocomplete="off" placeholder="Morning paper" />
+        <input type="text" name="reader_paper_label" value="{{ reader_paper_label }}" autocomplete="off" placeholder="Morning paper" data-paper-label />
       </label>
       <p class="hint">Used by the <code>{label}</code> token. Leave blank to omit it.</p>
       <label>
         Paper title pattern
-        <input type="text" name="reader_title_pattern" value="{{ reader_title_pattern }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="NewsCast - {hostname} {instance} {date}" />
+        <input type="text" name="reader_title_pattern" value="{{ reader_title_pattern }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="NewsCast - {hostname} {instance} {date}" data-paper-pattern maxlength="120" />
       </label>
-      <p class="hint">Used for OPDS titles, the EPUB book title, and the downloaded filename. Tokens: <code>{product}</code>, <code>{hostname}</code>, <code>{instance}</code>, <code>{label}</code>, <code>{date}</code>. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
+      <div class="token-chips" role="group" aria-label="Insert pattern token">
+        {% for token, note in reader_title_tokens %}
+        <button class="chip-btn" type="button" data-paper-token="{{ '{' ~ token ~ '}' }}" title="{{ note }}">{{ '{' ~ token ~ '}' }}</button>
+        {% endfor %}
+      </div>
+      <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
       <label>
         Paper date format
-        <select name="reader_date_format">
+        <select name="reader_date_format" data-paper-date-format>
           {% for value, label in reader_date_formats %}
-          <option value="{{ value }}" {% if reader_date_format == value %}selected{% endif %}>{{ label }}</option>
+          <option value="{{ value }}" {% if reader_date_format == value %}selected{% endif %} data-paper-date-sample="{{ reader_date_previews[value] }}">{{ label }}</option>
           {% endfor %}
         </select>
       </label>
-      <p class="hint">Example with your current settings: <strong>{{ reader_title_preview }}</strong></p>
+      <p class="hint">Live preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>
@@ -409,10 +425,37 @@
     <form method="post" action="/settings/categories" class="category-add">
       <label>
         New category
-        <input type="text" name="label" required autocomplete="off" placeholder="Marketing" />
+        <input type="text" name="label" required autocomplete="off" placeholder="Example" />
       </label>
       <button class="btn btn-secondary" type="submit">Add category</button>
     </form>
+  </div>
+</div>
+
+<div class="stack settings-panel" id="settings-panel-catalog" role="tabpanel" data-settings-panel="catalog" aria-labelledby="settings-tab-catalog"{% if settings_tab != 'catalog' %} hidden{% endif %}>
+  <div class="card stack">
+    <h2>Packages</h2>
+    <p class="hint">Import adds sources to the Catalog library. Export shares one of your categories as a JSON file. After importing, enable sources on Catalog.</p>
+    <div class="package-toolbar">
+      <form method="post" action="/catalog/packages/import" enctype="multipart/form-data">
+        <label>
+          Import package
+          <input type="file" name="file" accept=".json,application/json" required />
+        </label>
+        <button class="btn btn-secondary" type="submit">Import</button>
+      </form>
+      <form method="get" action="/catalog/packages/export" data-native>
+        <label>
+          Export category
+          <select name="category" data-export-category>
+            {% for category in export_categories %}
+            <option value="{{ category.key }}">{{ category.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn btn-secondary" type="submit">Export</button>
+      </form>
+    </div>
   </div>
 </div>
 

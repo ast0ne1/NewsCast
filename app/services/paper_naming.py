@@ -8,6 +8,13 @@ from sqlalchemy.orm import Session
 from app.services import hostname, settings
 
 DEFAULT_TITLE_PATTERN = "NewsCast - {hostname} {instance} {date}"
+TITLE_TOKENS = (
+    ("product", "NewsCast"),
+    ("hostname", "Device hostname"),
+    ("instance", "Device instance name"),
+    ("label", "Paper label"),
+    ("date", "Paper date"),
+)
 DATE_FORMATS = [
     ("iso", "YYYY-MM-DD (2026-09-14)"),
     ("dmy", "DD-MM-YYYY (14-09-2026)"),
@@ -86,6 +93,11 @@ def format_paper_date(day: date, style: str | None = None) -> str:
     if key == "ordinal":
         return f"{_ORDINAL_MONTHS[day.month - 1]} {_ordinal(day.day)} {day.year}"
     return day.isoformat()
+
+
+def date_format_previews(day: date | None = None) -> dict[str, str]:
+    sample = day or date.today()
+    return {key: format_paper_date(sample, key) for key, _label in DATE_FORMATS}
 
 
 def _collapse_name(value: str) -> str:

@@ -17,6 +17,22 @@ KEEP_OPTIONS = [
     (30, "30 days"),
     (0, "Pick a date"),
 ]
+ORIGIN_BRIEFING = "briefing"
+ORIGIN_MANUAL = "manual"
+ORIGIN_LABELS = {
+    ORIGIN_BRIEFING: "From Briefing",
+    ORIGIN_MANUAL: "Added URL",
+}
+
+
+def normalize_saved_origin(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return key if key in ORIGIN_LABELS else ORIGIN_MANUAL
+
+
+def saved_origin_label(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return ORIGIN_LABELS.get(key, "Saved")
 
 
 def parse_expiry(keep_days: str, custom_date: str) -> datetime:
@@ -67,10 +83,18 @@ def normalize_article_url(url: str) -> str:
     return raw
 
 
-def save_article(db: Session, url: str, keep_days: str = "7", custom_date: str = "") -> Story:
+def save_article(
+    db: Session,
+    url: str,
+    keep_days: str = "7",
+    custom_date: str = "",
+    *,
+    origin: str = ORIGIN_MANUAL,
+) -> Story:
     raw = normalize_article_url(url)
     canonical = canonicalize_url(raw)
     expires_at = parse_expiry(keep_days, custom_date)
+    saved_origin = normalize_saved_origin(origin)
     try:
         page_html = _http_get_html(raw)
     except httpx.TimeoutException as exc:
@@ -99,6 +123,7 @@ def save_article(db: Session, url: str, keep_days: str = "7", custom_date: str =
         existing.content_hash = content_hash(title, text)
         existing.cluster_key = cluster_key(title)
         existing.saved = True
+        existing.saved_origin = saved_origin
         existing.expires_at = expires_at
         db.commit()
         db.refresh(existing)
@@ -115,6 +140,7 @@ def save_article(db: Session, url: str, keep_days: str = "7", custom_date: str =
         raw_excerpt=text,
         favourited=False,
         saved=True,
+        saved_origin=saved_origin,
         expires_at=expires_at,
     )
     db.add(story)

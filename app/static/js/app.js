@@ -362,6 +362,71 @@ document.querySelectorAll("[data-reader-device]").forEach((select) => {
   sync();
 });
 
+document.querySelectorAll("[data-paper-naming]").forEach((root) => {
+  const form = root.closest("form");
+  const patternInput = root.querySelector("[data-paper-pattern]");
+  const labelInput = root.querySelector("[data-paper-label]");
+  const dateSelect = root.querySelector("[data-paper-date-format]");
+  const preview = root.querySelector("[data-paper-preview]");
+  if (!patternInput || !preview) return;
+  const hostInput = form?.querySelector("[name=device_hostname]");
+  const instanceInput = form?.querySelector("[name=instance_name]");
+  const defaultPattern = "NewsCast - {hostname} {instance} {date}";
+
+  function collapseName(value) {
+    let text = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    text = text.replace(/(?:\s*-\s*){2,}/g, " - ");
+    text = text.replace(/^\s*-\s*|\s*-\s*$/g, "");
+    return text.replace(/\s+/g, " ").trim().replace(/^-+|-+$/g, "").trim();
+  }
+
+  function dateSample() {
+    const option = dateSelect?.selectedOptions?.[0];
+    return option?.dataset.paperDateSample || "";
+  }
+
+  function renderPreview() {
+    const values = {
+      product: "NewsCast",
+      hostname: (hostInput?.value || "").trim(),
+      instance: (instanceInput?.value || "").trim(),
+      label: (labelInput?.value || "").trim(),
+      date: dateSample(),
+    };
+    const pattern = (patternInput.value || "").trim() || defaultPattern;
+    const filled = pattern.replace(/\{(product|hostname|instance|label|date)\}/gi, (_, key) => values[key.toLowerCase()] || "");
+    preview.textContent = collapseName(filled) || `NewsCast ${values.date}`.trim();
+  }
+
+  function insertToken(token) {
+    const start = patternInput.selectionStart ?? patternInput.value.length;
+    const end = patternInput.selectionEnd ?? start;
+    const before = patternInput.value.slice(0, start);
+    const after = patternInput.value.slice(end);
+    const needsSpaceBefore = before.length && !/\s$/.test(before) && !/-$/.test(before);
+    const needsSpaceAfter = after.length && !/^\s/.test(after) && !/^-/.test(after);
+    const chunk = `${needsSpaceBefore ? " " : ""}${token}${needsSpaceAfter ? " " : ""}`;
+    const next = `${before}${chunk}${after}`.slice(0, 120);
+    patternInput.value = next;
+    const cursor = Math.min(before.length + chunk.length, next.length);
+    patternInput.focus();
+    patternInput.setSelectionRange(cursor, cursor);
+    renderPreview();
+  }
+
+  root.querySelectorAll("[data-paper-token]").forEach((button) => {
+    button.addEventListener("click", () => insertToken(button.dataset.paperToken || ""));
+  });
+  [patternInput, labelInput, dateSelect, hostInput, instanceInput].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", renderPreview);
+    el.addEventListener("change", renderPreview);
+  });
+  renderPreview();
+});
+
 const loadOllama = document.querySelector("[data-load-ollama]");
 if (loadOllama) {
   const form = loadOllama.closest("form");

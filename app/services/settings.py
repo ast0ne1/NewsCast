@@ -95,6 +95,8 @@ UI_KEYS = (
     "x3_device_id",
     "x3_briefing_format",
     "ingest_interval_minutes",
+    "ingest_active_start",
+    "ingest_active_end",
     "briefing_limit",
     "briefing_publish_at",
     "device_hostname",

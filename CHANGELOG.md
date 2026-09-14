@@ -1,6 +1,19 @@
 # Changelog
 
-Current version is **0.0.0.3**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.4**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.4 — 2026-09-14
+
+### Added
+- Settings Reader can set the paper title/filename pattern and date style used by OPDS, EPUB metadata, and downloads (`{product}`, `{hostname}`, `{instance}`, `{label}`, `{date}`)
+- Settings Reader can set a custom paper label for `{label}`; Device instance name is `{instance}`
+- Settings Schedule can limit Global refresh to local active hours (for example every hour from 09:00 until 12:00)
+
+### Changed
+- Settings Reader splits connection, Sync, and Paper naming into separate cards
+- Settings Reader Paper naming offers clickable `{token}` chips and a live filename preview while editing
+- Settings Catalog holds package import and category export; the Catalog page is browse and add/remove only
+- Saved marks long-reads as From Briefing or Added URL; Briefing notes that bookmarked stories live on the Saved tab
 
 ## 0.0.0.3 — 2026-09-14
 
@@ -14,9 +27,6 @@ Current version is **0.0.0.3**. New work is appended under that version until yo
 - Reader host, upload folder, and push hints follow the chosen device (CrossPoint File Transfer vs KOReader SSH)
 - OPDS navigation uses **Daily Briefings** (today and yesterday, newest first) beside Library; only published papers appear
 - Reader EPUB contents and TOC nest Category → Source → stories, with more space between entries for e-ink reading
-- Settings Reader can set the paper title/filename pattern and date style used by OPDS, EPUB metadata, and downloads
-- Settings Reader can set a custom paper label for `{label}`; Device instance name is `{instance}`
-- Settings Reader splits connection, Sync, and Paper naming into separate cards
 - Feeds cards keep the source header visible and collapse schedule and filters behind Schedule & filters by default
 - Catalog shows Remove on added sources (including custom ones), so feeds can be taken off without opening Feeds
 - Feeds Schedule & filters uses a compact toggle with a fixed-size chevron; Catalog Remove no longer 404s after confirm

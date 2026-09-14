@@ -304,6 +304,8 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
     try:
         llm = settings.llm_config(db)
         global_minutes = settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes)
+        active_start = settings.get_value(db, "ingest_active_start")
+        active_end = settings.get_value(db, "ingest_active_end")
         urls, hashes, titles = _existing_lookup(db)
         if feed_id is not None:
             feed = db.get(Feed, feed_id)
@@ -316,7 +318,16 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
             feeds = db.query(Feed).filter(Feed.enabled.is_(True)).all()
             feeds = [feed for feed in feeds if not feed_is_muted(feed)]
             if not force:
-                feeds = [feed for feed in feeds if feed_is_due(feed, global_minutes)]
+                feeds = [
+                    feed
+                    for feed in feeds
+                    if feed_is_due(
+                        feed,
+                        global_minutes,
+                        active_start=active_start,
+                        active_end=active_end,
+                    )
+                ]
         global_include = settings.get_value(db, "keyword_include")
         global_exclude = settings.get_value(db, "keyword_exclude")
         if not feeds:
