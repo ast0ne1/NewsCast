@@ -2,7 +2,7 @@
 
 A Python news aggregator for a home Raspberry Pi or a Windows machine on your LAN. It fetches the sources you choose, writes a short briefing, and sends that briefing to an e-reader.
 
-The intended reader path is **CrossPoint** over OPDS. A Sync-style API is still there for patched Xteink firmware.
+The intended reader paths are **CrossPoint** (Xteink) and **KOReader** (Kobo) over OPDS. A Sync-style API is still there for patched Xteink firmware.
 
 Default login: **admin** / **admin** on the in-page sign-in screen. Change it on Settings after first launch.
 
@@ -18,7 +18,7 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 - Stores stories in SQLite and drops unfavourited ones after 7 days
 - Serves a mobile-first web UI on the LAN (light, dark, or match the device)
 - Caches each publication’s icon when a source or saved article is added
-- Exposes an OPDS catalog for CrossPoint, plus JSON / TXT / EPUB briefing downloads (EPUB/TXT freeze at the daily publish time)
+- Exposes an OPDS catalog for CrossPoint and KOReader, plus JSON / TXT / EPUB briefing downloads (EPUB/TXT freeze at the daily publish time)
 - Queues EPUB or PDF files as-is for the next reader sync (not summarised)
 
 ## Web UI
@@ -32,7 +32,7 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate to English, and Add custom |
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
 | **Status** | Ingest health, last reader task, Check reader plus push / publish controls, the pending file queue, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
-| **Settings** | Tabs for Device (including colour palettes), Schedule (refresh interval, story cap, and newspaper publish time), Filters (include/exclude words), LLM, Reader (catalog login and CrossPoint push), Categories, Backup/Restore, Update, and About |
+| **Settings** | Tabs for Device (including colour palettes), Schedule (refresh interval, story cap, and newspaper publish time), Filters (include/exclude words), LLM, Reader (Xteink/CrossPoint or Kobo/KOReader, catalog login, and push), Categories, Backup/Restore, Update, and About |
 
 <p align="center">
   <img src="docs/screenshots/briefing.png" alt="Briefing" width="280" />
@@ -89,15 +89,23 @@ sudo systemctl status newscast
 
 The reader talks to **one NewsCast at a time**. If you run a copy on the home Pi and another on a work laptop, add each as its own catalog (or point Sync at that machine’s URL). Set an **Instance name** on Settings (Home, Work) so the briefing title shows which copy you pulled.
 
-### CrossPoint (OPDS)
+On Settings → Reader, pick **Xteink** or **Kobo**. Both use the same OPDS catalog (`/opds`) for today’s frozen EPUB and Send-tab files. Push is different: CrossPoint has HTTP File Transfer; KOReader does not, so NewsCast uses SSH/SFTP instead.
 
-On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download today’s or yesterday’s **frozen** briefing EPUB (written at the publish time on Settings → Schedule); CrossPoint caches it for offline. Until today’s paper exists, today’s link falls back to yesterday. The catalog also lists files you queued on the Send tab.
+### Xteink (CrossPoint)
+
+Xteink needs **CrossPoint**. On CrossPoint: Settings → System → OPDS Servers → add `http://<this-copy>:8080/opds`. Download today’s or yesterday’s **frozen** briefing EPUB (written at the publish time on Settings → Schedule); CrossPoint caches it for offline. Until today’s paper exists, today’s link falls back to yesterday. The catalog also lists files you queued on the Send tab.
 
 To push files while File Transfer is on, set the reader host on Settings → Reader (default `crosspoint.local`) and use **Push now** or **Queue for later** on Status or Send. If the reader is asleep, queued files wait and go when Wi-Fi is back (or on the next minute tick if “Push when the reader is on Wi-Fi” is on).
 
-Leave username and password blank unless you turn on catalog login in NewsCast Settings — asking the reader to log in can crash it.
+Leave username and password blank unless you turn on catalog login in NewsCast Settings — asking CrossPoint to log in can crash it.
 
 If catalog login is on, set a catalog username and password on Settings. CrossPoint sends those as HTTP Basic. The same password also works as `Authorization: Bearer <token>` or `?token=` on `/api/x3`.
+
+### Kobo (KOReader)
+
+Kobo needs **KOReader** (stock Nickel has no OPDS). In KOReader: File browser → magnifying glass → OPDS catalog → add `http://<this-copy>:8080/opds`. Download the frozen briefing EPUB (standard EPUB, not KEPUB). Catalog login uses HTTP Basic if you turn it on; KOReader supports that.
+
+To push files the way CrossPoint File Transfer works, start KOReader’s **SSH server** (Tools → Network → SSH server, default port **2222**, user **root**) while the Kobo is on Wi-Fi. Set the Kobo’s LAN IP as Reader host and the upload folder to `/mnt/onboard/News` (KOReader’s file browser root is `/mnt/onboard`). **Check reader** probes that SSH port. **Push now** / **Queue for later** copy queued EPUBs and PDFs over SFTP. If SSH is off or the Kobo is asleep, they wait.
 
 | Path | What it serves |
 | --- | --- |

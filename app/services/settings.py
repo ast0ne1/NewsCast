@@ -54,6 +54,17 @@ BRIEFING_LIMITS = [
 ]
 BRIEFING_LIMIT_VALUES = {value for value, _label in BRIEFING_LIMITS}
 DEFAULT_BRIEFING_LIMIT = 20
+READER_DEVICES = [
+    ("xteink", "Xteink — CrossPoint"),
+    ("kobo", "Kobo — KOReader"),
+]
+READER_DEVICE_IDS = {value for value, _label in READER_DEVICES}
+DEFAULT_READER_DEVICE = "xteink"
+DEFAULT_XTEINK_HOST = "crosspoint.local"
+DEFAULT_XTEINK_FOLDER = "/News"
+DEFAULT_KOBO_FOLDER = "/mnt/onboard/News"
+DEFAULT_KOBO_SSH_PORT = 2222
+DEFAULT_KOBO_SSH_USER = "root"
 
 
 def format_interval_short(minutes: int | None) -> str:
@@ -88,9 +99,13 @@ UI_KEYS = (
     "github_repo",
     "keyword_include",
     "keyword_exclude",
+    "reader_device",
     "reader_host",
     "reader_upload_path",
     "reader_push_when_online",
+    "reader_ssh_port",
+    "reader_ssh_user",
+    "reader_ssh_password",
 )
 
 
@@ -138,12 +153,14 @@ def _default_value(key: str) -> str:
         return str(DEFAULT_BRIEFING_LIMIT)
     if key == "briefing_publish_at":
         return "06:30"
-    if key == "reader_host":
-        return "crosspoint.local"
-    if key == "reader_upload_path":
-        return "/News"
+    if key == "reader_device":
+        return DEFAULT_READER_DEVICE
     if key == "reader_push_when_online":
         return "0"
+    if key == "reader_ssh_port":
+        return str(DEFAULT_KOBO_SSH_PORT)
+    if key == "reader_ssh_user":
+        return DEFAULT_KOBO_SSH_USER
     return ""
 
 
@@ -221,6 +238,28 @@ def catalog_login_enabled(db: Session) -> bool:
 
 def reader_push_enabled(db: Session) -> bool:
     return flag_enabled(db, "reader_push_when_online")
+
+
+def normalize_reader_device(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return key if key in READER_DEVICE_IDS else DEFAULT_READER_DEVICE
+
+
+def reader_device(db: Session) -> str:
+    return normalize_reader_device(get_value(db, "reader_device"))
+
+
+def reader_is_kobo(db: Session) -> bool:
+    return reader_device(db) == "kobo"
+
+
+def reader_ssh_port(db: Session) -> int:
+    value = get_int(db, "reader_ssh_port", DEFAULT_KOBO_SSH_PORT)
+    return value if 1 <= value <= 65535 else DEFAULT_KOBO_SSH_PORT
+
+
+def reader_ssh_user(db: Session) -> str:
+    return get_value(db, "reader_ssh_user").strip() or DEFAULT_KOBO_SSH_USER
 
 
 def catalog_username(db: Session) -> str:

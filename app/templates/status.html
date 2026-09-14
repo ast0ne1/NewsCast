@@ -32,12 +32,23 @@
   <p class="hint">This copy is labelled <strong>{{ instance_name }}</strong> on the briefing.</p>
   {% endif %}
   <p class="hint">
-    On CrossPoint: Settings → System → OPDS Servers → add
-    <strong>{{ public_base_url }}/opds</strong>.
-    {% if x3_catalog_login and x3_token_set %}
-      This catalog asks for username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings. That login can crash some readers — turn it off on Settings if it does.
+    {% if reader.device == 'kobo' %}
+      In KOReader: File browser → magnifying glass → OPDS catalog → add
+      <strong>{{ public_base_url }}/opds</strong>.
+      {% if x3_catalog_login and x3_token_set %}
+        Use username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings.
+      {% else %}
+        Leave username and password blank. Catalog login is off.
+      {% endif %}
+      To push files, start KOReader’s SSH server (Tools → Network → SSH server, port 2222) while the Kobo is on Wi-Fi.
     {% else %}
-      Leave username and password blank on the device. Catalog login is off so CrossPoint does not have to authenticate (that can crash the reader).
+      On CrossPoint: Settings → System → OPDS Servers → add
+      <strong>{{ public_base_url }}/opds</strong>.
+      {% if x3_catalog_login and x3_token_set %}
+        This catalog asks for username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings. That login can crash some readers — turn it off on Settings if it does.
+      {% else %}
+        Leave username and password blank on the device. Catalog login is off so CrossPoint does not have to authenticate (that can crash the reader).
+      {% endif %}
     {% endif %}
     Add each NewsCast copy as its own catalog (Work and Home) and switch catalog for the other briefing.
     {% if public_base_url and public_base_url != request_base_url %}
@@ -61,7 +72,9 @@
       {{ reader.host }} has not been checked this session.
     {% endif %}
     {% if reader.pending %}{{ reader.pending }} file{{ 's' if reader.pending != 1 else '' }} waiting.{% else %}Nothing queued.{% endif %}
-    {% if reader.push_when_online %}NewsCast will push when the reader is on Wi-Fi.{% endif %}
+    {% if reader.push_when_online %}
+      {% if reader.device == 'kobo' %}NewsCast will push when KOReader’s SSH server is on Wi-Fi.{% else %}NewsCast will push when the reader is on Wi-Fi.{% endif %}
+    {% endif %}
   </p>
   <div class="btn-row">
     <form method="post" action="/reader/poll" data-busy-label="Checking…">

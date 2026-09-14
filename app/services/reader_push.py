@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from datetime import date, datetime, timezone
 from pathlib import Path
 from posixpath import dirname, join
@@ -8,7 +9,7 @@ from posixpath import dirname, join
 import httpx
 from sqlalchemy.orm import Session
 
-from app.config import LIBRARY_DIR
+from app.config import DATA_DIR, LIBRARY_DIR
 from app.models import LibraryFile, SyncTask, utcnow
 from app.services import settings
 from app.services.briefing import BRIEFING_SAVE_RE, enqueue_sync_file, frozen_briefing_path
@@ -20,28 +21,50 @@ _last_probe: dict | None = None
 
 
 def reader_host(db: Session) -> str:
-    host = (settings.get_value(db, "reader_host") or "crosspoint.local").strip()
-    return host.removeprefix("http://").removeprefix("https://").split("/")[0] or "crosspoint.local"
+    host = (settings.get_value(db, "reader_host") or "").strip()
+    host = host.removeprefix("http://").removeprefix("https://").split("/")[0]
+    if host:
+        return host
+    return "" if settings.reader_is_kobo(db) else settings.DEFAULT_XTEINK_HOST
 
 
 def reader_upload_dir(db: Session) -> str:
-    raw = (settings.get_value(db, "reader_upload_path") or "/News").strip() or "/News"
+    raw = (settings.get_value(db, "reader_upload_path") or "").strip()
+    if not raw:
+        raw = settings.DEFAULT_KOBO_FOLDER if settings.reader_is_kobo(db) else settings.DEFAULT_XTEINK_FOLDER
     if not raw.startswith("/"):
         raw = "/" + raw
-    return raw.rstrip("/") or "/News"
+    fallback = settings.DEFAULT_KOBO_FOLDER if settings.reader_is_kobo(db) else settings.DEFAULT_XTEINK_FOLDER
+    return raw.rstrip("/") or fallback
 
 
-def reader_reachable(host: str, timeout: float | None = None) -> bool:
-    limit = timeout if timeout is not None else 2.0
+def _http_reachable(host: str, timeout: float) -> bool:
     try:
-        with httpx.Client(timeout=httpx.Timeout(limit, connect=limit), follow_redirects=True) as client:
+        with httpx.Client(timeout=httpx.Timeout(timeout, connect=timeout), follow_redirects=True) as client:
             response = client.get(f"http://{host}/api/status")
             return response.status_code < 500
     except Exception:  # noqa: BLE001
         return False
 
 
-def upload_file(host: str, path: Path, dest_dir: str) -> None:
+def _tcp_reachable(host: str, port: int, timeout: float) -> bool:
+    if not host:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def reader_reachable(host: str, timeout: float | None = None, db: Session | None = None) -> bool:
+    limit = timeout if timeout is not None else 2.0
+    if db is not None and settings.reader_is_kobo(db):
+        return _tcp_reachable(host, settings.reader_ssh_port(db), limit)
+    return _http_reachable(host, limit)
+
+
+def _http_upload(host: str, path: Path, dest_dir: str) -> None:
     folder = dest_dir if dest_dir.startswith("/") else f"/{dest_dir}"
     with path.open("rb") as handle:
         with httpx.Client(timeout=UPLOAD_TIMEOUT, follow_redirects=True) as client:
@@ -51,6 +74,64 @@ def upload_file(host: str, path: Path, dest_dir: str) -> None:
                 files={"file": (path.name, handle, "application/octet-stream")},
             )
             response.raise_for_status()
+
+
+def _known_hosts_path() -> Path:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return DATA_DIR / "reader_known_hosts"
+
+
+def _ensure_sftp_dir(sftp, folder: str) -> None:
+    parts = [part for part in folder.split("/") if part]
+    current = ""
+    for part in parts:
+        current += "/" + part
+        try:
+            sftp.stat(current)
+        except OSError:
+            sftp.mkdir(current)
+
+
+def _sftp_upload(db: Session, host: str, path: Path, dest_dir: str) -> None:
+    import paramiko
+
+    folder = dest_dir if dest_dir.startswith("/") else f"/{dest_dir}"
+    port = settings.reader_ssh_port(db)
+    user = settings.reader_ssh_user(db)
+    password = settings.get_value(db, "reader_ssh_password")
+    client = paramiko.SSHClient()
+    keys = _known_hosts_path()
+    client.load_system_host_keys()
+    if keys.exists():
+        client.load_host_keys(str(keys))
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=host,
+            port=port,
+            username=user,
+            password=password or None,
+            timeout=20,
+            allow_agent=False,
+            look_for_keys=False,
+            auth_timeout=20,
+        )
+        client.save_host_keys(str(keys))
+        sftp = client.open_sftp()
+        try:
+            _ensure_sftp_dir(sftp, folder)
+            sftp.put(str(path), f"{folder.rstrip('/')}/{path.name}")
+        finally:
+            sftp.close()
+    finally:
+        client.close()
+
+
+def upload_file(host: str, path: Path, dest_dir: str, db: Session | None = None) -> None:
+    if db is not None and settings.reader_is_kobo(db):
+        _sftp_upload(db, host, path, dest_dir)
+        return
+    _http_upload(host, path, dest_dir)
 
 
 def pending_crosspoint(db: Session) -> list[SyncTask]:
@@ -146,7 +227,7 @@ def flush_pending(db: Session) -> dict:
     host = reader_host(db)
     dest = reader_upload_dir(db)
     tasks = pending_crosspoint(db)
-    online = reader_reachable(host)
+    online = reader_reachable(host, db=db)
     if not online:
         return {"ok": False, "online": False, "uploaded": 0, "pending": len(tasks), "host": host}
     uploaded = 0
@@ -157,7 +238,7 @@ def flush_pending(db: Session) -> dict:
             task.completed_at = utcnow()
             continue
         try:
-            upload_file(host, path, _task_folder(task, dest))
+            upload_file(host, path, _task_folder(task, dest), db=db)
             task.status = "complete"
             task.completed_at = utcnow()
             uploaded += 1
@@ -183,7 +264,7 @@ def snapshot(db: Session, *, probe: bool = True) -> dict:
     host = reader_host(db)
     pending = pending_crosspoint(db)
     if probe:
-        online = reader_reachable(host, timeout=0.6)
+        online = reader_reachable(host, timeout=0.6, db=db)
         remember_probe(host, online)
         checked = True
     else:
@@ -198,4 +279,6 @@ def snapshot(db: Session, *, probe: bool = True) -> dict:
         "pending": len(pending),
         "queue": queue_items(db),
         "push_when_online": settings.reader_push_enabled(db),
+        "device": settings.reader_device(db),
+        "ssh_port": settings.reader_ssh_port(db),
     }

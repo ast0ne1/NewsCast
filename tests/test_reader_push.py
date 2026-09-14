@@ -19,7 +19,7 @@ def test_unreachable_leaves_pending(tmp_path: Path, monkeypatch):
     path = tmp_path / "news.epub"
     path.write_bytes(b"epub")
     enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
-    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host: False)
+    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None: False)
     result = reader_push.flush_pending(db)
     assert result["ok"] is False
     assert result["online"] is False
@@ -32,7 +32,7 @@ def test_snapshot_skips_probe_until_remembered(monkeypatch):
     monkeypatch.setattr(
         reader_push,
         "reader_reachable",
-        lambda host, timeout=None: called.append(host) or True,
+        lambda host, timeout=None, db=None: called.append(host) or True,
     )
     reader_push._last_probe = None
     snap = reader_push.snapshot(db, probe=False)
@@ -88,10 +88,84 @@ def test_upload_marks_complete(tmp_path: Path, monkeypatch):
     path.write_bytes(b"epub")
     enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
     uploaded: list[str] = []
-    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host: True)
-    monkeypatch.setattr(reader_push, "upload_file", lambda host, file_path, dest: uploaded.append(file_path.name))
+    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None: True)
+    monkeypatch.setattr(reader_push, "upload_file", lambda host, file_path, dest, db=None: uploaded.append(file_path.name))
     result = reader_push.flush_pending(db)
     assert result["ok"] is True
     assert result["uploaded"] == 1
     assert uploaded == ["news.epub"]
     assert db.query(SyncTask).one().status == "complete"
+
+
+def test_reader_device_defaults_to_xteink():
+    db = _session()
+    from app.services import settings
+
+    assert settings.reader_device(db) == "xteink"
+    assert settings.normalize_reader_device("Kobo") == "kobo"
+    assert settings.normalize_reader_device("nope") == "xteink"
+    assert reader_push.reader_host(db) == "crosspoint.local"
+    assert reader_push.reader_upload_dir(db) == "/News"
+
+
+def test_kobo_defaults_host_and_folder():
+    db = _session()
+    from app.services import settings
+
+    settings.set_value(db, "reader_device", "kobo")
+    assert settings.reader_is_kobo(db) is True
+    assert reader_push.reader_host(db) == ""
+    assert reader_push.reader_upload_dir(db) == "/mnt/onboard/News"
+    assert settings.reader_ssh_port(db) == 2222
+    assert settings.reader_ssh_user(db) == "root"
+
+
+def test_kobo_reachable_uses_tcp_port(monkeypatch):
+    db = _session()
+    from app.services import settings
+
+    settings.set_value(db, "reader_device", "kobo")
+    settings.set_value(db, "reader_host", "kobo.local")
+    seen: list[tuple] = []
+
+    def fake_tcp(host, port, timeout):
+        seen.append((host, port, timeout))
+        return True
+
+    monkeypatch.setattr(reader_push, "_tcp_reachable", fake_tcp)
+    monkeypatch.setattr(reader_push, "_http_reachable", lambda *a, **k: (_ for _ in ()).throw(AssertionError("http")))
+    assert reader_push.reader_reachable("kobo.local", timeout=0.5, db=db) is True
+    assert seen == [("kobo.local", 2222, 0.5)]
+
+
+def test_xteink_upload_uses_http(tmp_path: Path, monkeypatch):
+    db = _session()
+    path = tmp_path / "paper.epub"
+    path.write_bytes(b"epub")
+    seen: list[tuple] = []
+
+    def fake_http(host, file_path, dest_dir):
+        seen.append((host, file_path.name, dest_dir))
+
+    monkeypatch.setattr(reader_push, "_http_upload", fake_http)
+    monkeypatch.setattr(reader_push, "_sftp_upload", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sftp")))
+    reader_push.upload_file("crosspoint.local", path, "/News", db=db)
+    assert seen == [("crosspoint.local", "paper.epub", "/News")]
+
+
+def test_kobo_upload_uses_sftp(tmp_path: Path, monkeypatch):
+    db = _session()
+    from app.services import settings
+
+    settings.set_value(db, "reader_device", "kobo")
+    path = tmp_path / "paper.epub"
+    path.write_bytes(b"epub")
+    seen: list[tuple] = []
+
+    def fake_sftp(_db, host, file_path, dest_dir):
+        seen.append((host, file_path.name, dest_dir))
+
+    monkeypatch.setattr(reader_push, "_sftp_upload", fake_sftp)
+    monkeypatch.setattr(reader_push, "_http_upload", lambda *a, **k: (_ for _ in ()).throw(AssertionError("http")))
+    reader_push.upload_file("192.168.1.8", path, "/mnt/onboard/News", db=db)
+    assert seen == [("192.168.1.8", "paper.epub", "/mnt/onboard/News")]

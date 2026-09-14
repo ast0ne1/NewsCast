@@ -60,7 +60,7 @@ SETTINGS_LEDES = {
     "schedule": "How often sources refresh, when the reader newspaper publishes, and how many stories Briefing shows.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
-    "reader": "Catalog login, CrossPoint host, and push when the reader is on Wi-Fi.",
+    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login and push when the reader is on Wi-Fi.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
     "update": "Check GitHub Releases and install a newer zip.",
@@ -404,6 +404,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "x3_token_set": bool(settings.get_value(db, "x3_sync_token")),
             "update_check": update.last_check(db),
             "paper": paper_status(db),
+            "reader_device": settings.reader_device(db),
         },
     )
 
@@ -460,9 +461,14 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "latest_backup": backup.latest_backup(),
             "keyword_include": settings.get_value(db, "keyword_include"),
             "keyword_exclude": settings.get_value(db, "keyword_exclude"),
+            "reader_device": settings.reader_device(db),
+            "reader_devices": settings.READER_DEVICES,
             "reader_host": settings.get_value(db, "reader_host"),
             "reader_upload_path": settings.get_value(db, "reader_upload_path"),
             "reader_push_when_online": settings.reader_push_enabled(db),
+            "reader_ssh_port": settings.reader_ssh_port(db),
+            "reader_ssh_user": settings.reader_ssh_user(db),
+            "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
         },
     )
 
@@ -504,7 +510,7 @@ def poll_reader(request: Request, db: Annotated[Session, Depends(get_db)], next:
     if nxt not in {"/status", "/library"}:
         nxt = "/library"
     host = reader_push.reader_host(db)
-    online = reader_push.reader_reachable(host)
+    online = reader_push.reader_reachable(host, db=db)
     reader_push.remember_probe(host, online)
     message = f"{host} is {'online' if online else 'asleep'}."
     if _wants_json(request):
@@ -788,6 +794,11 @@ def save_settings(
     reader_host: Annotated[str, Form()] = "",
     reader_upload_path: Annotated[str, Form()] = "",
     reader_push_when_online: Annotated[str, Form()] = "",
+    reader_device: Annotated[str, Form()] = "xteink",
+    reader_ssh_port: Annotated[str, Form()] = "",
+    reader_ssh_user: Annotated[str, Form()] = "",
+    reader_ssh_password: Annotated[str, Form()] = "",
+    clear_reader_ssh_password: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "device",
 ):
     tab = normalize_settings_tab(settings_tab)
@@ -849,13 +860,35 @@ def save_settings(
     settings.set_value(db, "x3_device_id", x3_device_id.strip())
     settings.set_value(db, "keyword_include", keyword_include.strip())
     settings.set_value(db, "keyword_exclude", keyword_exclude.strip())
+    device = settings.normalize_reader_device(reader_device)
+    settings.set_value(db, "reader_device", device)
     host = reader_host.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
-    settings.set_value(db, "reader_host", host or "crosspoint.local")
-    folder = reader_upload_path.strip() or "/News"
+    if host:
+        settings.set_value(db, "reader_host", host)
+    elif device == "kobo":
+        settings.clear_value(db, "reader_host")
+    else:
+        settings.set_value(db, "reader_host", settings.DEFAULT_XTEINK_HOST)
+    default_folder = settings.DEFAULT_KOBO_FOLDER if device == "kobo" else settings.DEFAULT_XTEINK_FOLDER
+    folder = reader_upload_path.strip() or default_folder
     if not folder.startswith("/"):
         folder = "/" + folder
-    settings.set_value(db, "reader_upload_path", folder.rstrip("/") or "/News")
+    settings.set_value(db, "reader_upload_path", folder.rstrip("/") or default_folder)
     settings.set_value(db, "reader_push_when_online", "1" if reader_push_when_online else "0")
+    if reader_ssh_port.strip():
+        try:
+            port = int(reader_ssh_port)
+        except ValueError:
+            return _settings_error(request, "SSH port must be a number.", tab)
+        if not 1 <= port <= 65535:
+            return _settings_error(request, "SSH port must be between 1 and 65535.", tab)
+        settings.set_value(db, "reader_ssh_port", str(port))
+    user = reader_ssh_user.strip() or settings.DEFAULT_KOBO_SSH_USER
+    settings.set_value(db, "reader_ssh_user", user)
+    if clear_reader_ssh_password:
+        settings.clear_value(db, "reader_ssh_password")
+    elif reader_ssh_password.strip():
+        settings.set_value(db, "reader_ssh_password", reader_ssh_password.strip())
     wanted_host = hostname.normalize_hostname(device_hostname)
     if wanted_host:
         if not hostname.valid_hostname(wanted_host):

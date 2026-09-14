@@ -325,6 +325,42 @@ document.querySelectorAll("[data-llm-provider]").forEach((select) => {
   sync();
 });
 
+document.querySelectorAll("[data-reader-device]").forEach((select) => {
+  const form = select.closest("form");
+  if (!form) return;
+  const host = form.querySelector("[data-reader-host]");
+  const folder = form.querySelector("[data-reader-folder]");
+  const defaults = {
+    xteink: { host: "crosspoint.local", folder: "/News" },
+    kobo: { host: "192.168.1.50", folder: "/mnt/onboard/News" },
+  };
+  const sync = () => {
+    const device = select.value;
+    form.querySelectorAll("[data-reader-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.readerPanel !== device;
+    });
+    form.querySelectorAll("[data-reader-hint]").forEach((hint) => {
+      hint.hidden = hint.dataset.readerHint !== device;
+    });
+    const next = defaults[device] || defaults.xteink;
+    const prev = device === "kobo" ? defaults.xteink : defaults.kobo;
+    if (host) {
+      host.placeholder = next.host;
+      if (!host.value.trim() || host.value.trim() === prev.host) {
+        host.value = device === "kobo" ? "" : next.host;
+      }
+    }
+    if (folder) {
+      folder.placeholder = next.folder;
+      if (!folder.value.trim() || folder.value.trim() === prev.folder) {
+        folder.value = next.folder;
+      }
+    }
+  };
+  select.addEventListener("change", sync);
+  sync();
+});
+
 const loadOllama = document.querySelector("[data-load-ollama]");
 if (loadOllama) {
   const form = loadOllama.closest("form");

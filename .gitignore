@@ -17,6 +17,7 @@ data/session.secret
 data/packages/
 data/backups/
 data/updates/
+data/reader_known_hosts
 .idea/
 .vscode/
 .cursor/

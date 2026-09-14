@@ -211,11 +211,22 @@
   <div class="stack settings-panel" id="settings-panel-reader" role="tabpanel" data-settings-panel="reader" aria-labelledby="settings-tab-reader"{% if settings_tab != 'reader' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Reader</h2>
+      <label>
+        Device
+        <select name="reader_device" data-reader-device>
+          {% for value, label in reader_devices %}
+          <option value="{{ value }}" {% if reader_device == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>Xteink needs <strong>CrossPoint</strong>. Add this copy’s OPDS catalog there. Push uses HTTP File Transfer.</p>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>Kobo needs <strong>KOReader</strong>. Add the same OPDS catalog in KOReader (File browser → magnifying glass → OPDS catalog). Push uses SSH/SFTP over Wi-Fi instead of CrossPoint’s HTTP upload.</p>
       <label class="check">
         <input type="checkbox" name="x3_catalog_login" value="1" {% if x3_catalog_login %}checked{% endif %} />
         Require username and password on the reader
       </label>
-      <p class="hint">Leave this off. CrossPoint can crash if the catalog asks the reader to log in. The catalog stays open on your LAN.</p>
+      <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>Leave this off. CrossPoint can crash if the catalog asks the reader to log in. The catalog stays open on your LAN.</p>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>KOReader supports HTTP Basic. Leave this off on a trusted LAN.</p>
       <label>
         Catalog username
         <input type="text" name="x3_catalog_username" value="{{ x3_catalog_username }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="newscast" />
@@ -231,24 +242,50 @@
         <input type="checkbox" name="clear_x3_sync_token" value="1" />
         Clear saved catalog password
       </label>
-      <label>
-        Device id
-        <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
-      </label>
-      <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Device labels the briefing so you know which one you pulled.</p>
+      <div class="provider-panel" data-reader-panel="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>
+        <label>
+          Device id
+          <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
+        </label>
+        <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Device labels the briefing so you know which one you pulled.</p>
+      </div>
       <label>
         Reader host
-        <input type="text" name="reader_host" value="{{ reader_host }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="crosspoint.local" />
+        <input type="text" name="reader_host" value="{{ reader_host }}" autocomplete="off" autocapitalize="off" spellcheck="false" data-reader-host placeholder="{{ '192.168.1.50' if reader_device == 'kobo' else 'crosspoint.local' }}" />
       </label>
+      <div class="provider-panel" data-reader-panel="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>
+        <label>
+          SSH port
+          <input type="number" name="reader_ssh_port" value="{{ reader_ssh_port }}" min="1" max="65535" inputmode="numeric" />
+        </label>
+        <label>
+          SSH username
+          <input type="text" name="reader_ssh_user" value="{{ reader_ssh_user }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="root" />
+        </label>
+        <label>
+          SSH password
+          <input type="password" name="reader_ssh_password" autocomplete="off" placeholder="{{ reader_ssh_password.hint or 'Optional' }}" />
+        </label>
+        <p class="hint">
+          {% if reader_ssh_password.set %}Password saved ({{ reader_ssh_password.hint }}). Leave blank to keep it.{% else %}Optional. Leave blank if KOReader has “Login without password” on.{% endif %}
+        </p>
+        <label class="check">
+          <input type="checkbox" name="clear_reader_ssh_password" value="1" />
+          Clear saved SSH password
+        </label>
+        <p class="hint">In KOReader: Tools (cog) → Network → SSH server, port 2222. Keep Wi-Fi on while NewsCast pushes.</p>
+      </div>
       <label>
         Upload folder
-        <input type="text" name="reader_upload_path" value="{{ reader_upload_path }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="/News" />
+        <input type="text" name="reader_upload_path" value="{{ reader_upload_path }}" autocomplete="off" autocapitalize="off" spellcheck="false" data-reader-folder placeholder="{{ '/mnt/onboard/News' if reader_device == 'kobo' else '/News' }}" />
       </label>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>Files land under <strong>/mnt/onboard</strong>, which is KOReader’s file browser root. Default folder is <strong>/mnt/onboard/News</strong>.</p>
       <label class="check">
         <input type="checkbox" name="reader_push_when_online" value="1" {% if reader_push_when_online %}checked{% endif %} />
         Push when the reader is on Wi-Fi
       </label>
-      <p class="hint">NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
+      <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>

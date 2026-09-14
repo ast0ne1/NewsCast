@@ -11,4 +11,5 @@ openai==1.107.1
 apscheduler==3.11.0
 ebooklib==0.18
 segno==1.6.6
+paramiko==3.5.1
 pytest==8.4.2
