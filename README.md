@@ -110,7 +110,7 @@ To push files the way CrossPoint File Transfer works, start KOReader’s **SSH s
 | Path | What it serves |
 | --- | --- |
 | `GET /opds` | Navigation catalog (today’s briefing + Send library) |
-| `GET /opds/briefing` | Acquisition feed for today’s and yesterday’s EPUB |
+| `GET /opds/briefing` | Acquisition feed for Daily Briefings (today and yesterday when published) |
 | `GET /opds/library` | Acquisition feed for queued EPUB and PDF files |
 | `GET /api/x3/news` | JSON briefing |
 | `GET /api/x3/news.txt` | Plain-text briefing |
@@ -151,7 +151,7 @@ Environment variables in `.env` are deploy-time defaults. Settings can override 
 | `X3_DEVICE_ID` | empty | Device id for Sync tasks |
 | `X3_BRIEFING_FORMAT` | `txt` | `txt` or `epub` for the Sync briefing file |
 | `X3_SAVE_PATH` | `/Pushed Files/NewsCast/` | Folder the Sync firmware writes into on the reader |
-| `PUBLIC_BASE_URL` | `http://127.0.0.1:8080` | File URLs in sync tasks when no hostname is set |
+| `PUBLIC_BASE_URL` | `http://127.0.0.1:8080` | Catalog and sync file URLs when no hostname is set. Localhost falls back to the detected LAN IP |
 | `DEVICE_HOSTNAME` | empty | Pi / `.local` name; also editable on Settings |
 | `GITHUB_REPO` | empty | `owner/NewsCast` for in-app GitHub Release checks; also set on Settings |
 

@@ -1,3 +1,5 @@
+import re
+
 from openai import OpenAI
 import httpx
 
@@ -5,10 +7,56 @@ from app.services.settings import LlmConfig, normalize_ollama_root
 
 SYSTEM_PROMPT = (
     "You write concise news briefings for an e-ink reader. "
-    "Summarize the story in 2-4 factual sentences. No hype, no clickbait, "
-    "no preamble. Mention the outlet only if it adds context. "
+    "Reply with only the summary text: 2-4 factual sentences. "
+    "Do not add a preamble, greeting, title, or closing. "
+    "Never start with phrases like 'Here is', 'Here's', 'Sure', "
+    "'Based on the provided text', or 'A concise summary'. "
+    "No hype, no clickbait. Mention the outlet only if it adds context. "
     "Do not invent facts that are not in the source text."
 )
+
+_PREAMBLE_RE = re.compile(
+    r"""
+    ^\s*[\"'“”`]?
+    (?:(?:sure|okay|ok|certainly|of\ course)[,!]?\s+)?
+    (?:
+        here(?:'s|\s+is)\s+(?:a\s+)?(?:concise\s+)?(?:news\s+)?(?:briefing|summary|overview|recap)
+            (?:\s+based\s+on(?:\s+the)?(?:\s+provided|\s+source|\s+given)?(?:\s+text|\s+article|\s+story|\s+content)?)?
+        |here(?:'s|\s+is)\s+(?:the\s+)?(?:briefing|summary|overview|recap)
+        |based\s+on(?:\s+the)?(?:\s+provided|\s+source|\s+given)?(?:\s+text|\s+article|\s+story|\s+content)
+        |(?:a\s+)?concise\s+(?:news\s+)?(?:briefing|summary)
+            (?:\s+based\s+on(?:\s+the)?(?:\s+provided|\s+source|\s+given)?(?:\s+text|\s+article|\s+story|\s+content)?)?
+        |i(?:'ve|\s+have)\s+(?:written|prepared|created)\s+(?:a\s+)?(?:briefing|summary)
+    )
+    [^\n:]{0,80}
+    [:\-–—]\s*
+    [\"'“”`]?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_WRAPPER_RE = re.compile(r'^[\"“”\'`]+|[\"“”\'`]+$')
+
+
+def clean_summary(text: str, *, title: str = "", excerpt: str = "") -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return fallback_summary(title, excerpt)
+
+    if len(cleaned) >= 2 and cleaned[0] in "\"“'`" and cleaned[-1] in "\"”'`":
+        cleaned = cleaned[1:-1].strip()
+
+    for _ in range(3):
+        next_text = _PREAMBLE_RE.sub("", cleaned, count=1).strip()
+        next_text = _WRAPPER_RE.sub("", next_text).strip()
+        if next_text == cleaned:
+            break
+        cleaned = next_text
+
+    lowered = cleaned.lower()
+    if not cleaned or lowered.startswith(("here is", "here's", "based on the provided")):
+        return fallback_summary(title, excerpt)
+    return cleaned
 
 
 def fallback_summary(title: str, excerpt: str) -> str:
@@ -37,7 +85,8 @@ def summarize_story(
     user = (
         f"Outlet: {source}\n"
         f"Headline: {title}\n\n"
-        f"Source text:\n{(excerpt or title)[:4000]}"
+        f"Source text:\n{(excerpt or title)[:4000]}\n\n"
+        "Write only the summary sentences. No introduction."
     )
     response = client.chat.completions.create(
         model=model or "gpt-4o-mini",
@@ -49,7 +98,8 @@ def summarize_story(
         ],
     )
     text = (response.choices[0].message.content or "").strip()
-    return text or fallback_summary(title, excerpt)
+    cleaned = clean_summary(text, title=title, excerpt=excerpt)
+    return cleaned or fallback_summary(title, excerpt)
 
 
 def summarize_with_config(title: str, excerpt: str, source: str, config: LlmConfig) -> str:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Base
 from app.services.settings import LlmConfig, llm_config, normalize_ollama_root, normalize_provider, set_value
-from app.services.summarize import fallback_summary, list_ollama_models, summarize_story, summarize_with_config
+from app.services.summarize import clean_summary, fallback_summary, list_ollama_models, summarize_story, summarize_with_config
 
 
 def _session() -> Session:
@@ -106,6 +106,55 @@ def test_llm_config_ollama_ready():
     assert config.ready is True
     assert config.base_url.endswith("/v1")
     assert config.api_key == "ollama"
+
+
+def test_clean_summary_strips_ai_preamble():
+    raw = 'Here is a concise news briefing based on the provided text: "Markets rose after the central bank held rates."'
+    assert clean_summary(raw) == "Markets rose after the central bank held rates."
+    assert clean_summary("Here's a summary:\nSweden's left-wing bloc leads.") == "Sweden's left-wing bloc leads."
+    assert clean_summary("Based on the provided text — China criticised AI competition claims.") == (
+        "China criticised AI competition claims."
+    )
+    plain = "The boy was acquitted on grounds of insanity."
+    assert clean_summary(plain) == plain
+
+
+def test_summarize_story_strips_model_preamble(monkeypatch):
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            return type(
+                "R",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "C",
+                            (),
+                            {
+                                "message": type(
+                                    "M",
+                                    (),
+                                    {
+                                        "content": (
+                                            "Here is a concise news briefing based on the provided text: "
+                                            "The athlete finished the race."
+                                        )
+                                    },
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr("app.services.summarize.OpenAI", FakeClient)
+    text = summarize_story("Race", "Source body", "BBC", "key", "gpt-4o-mini")
+    assert text == "The athlete finished the race."
+    assert "here is" not in text.lower()
 
 
 def test_fallback_summary_clips():

@@ -87,6 +87,7 @@ def test_write_epub_strips_unsafe_html_and_groups_toc(tmp_path: Path):
     payload = {
         "title": "NewsCast briefing",
         "generated_at": "2026-09-14T06:30:00Z",
+        "paper_date": "2026-09-14",
         "stories": [
             {
                 "id": "1",
@@ -110,6 +111,17 @@ def test_write_epub_strips_unsafe_html_and_groups_toc(tmp_path: Path):
                 "category_label": "World News",
                 "saved": False,
             },
+            {
+                "id": "3",
+                "title": "Second wire",
+                "summary": "<p>More.</p>",
+                "source": "Reuters",
+                "url": "https://example.com/b",
+                "published_label": "14 Sep 2026",
+                "category": "news",
+                "category_label": "World News",
+                "saved": False,
+            },
         ],
     }
     write_epub(payload, dest)
@@ -124,9 +136,34 @@ def test_write_epub_strips_unsafe_html_and_groups_toc(tmp_path: Path):
         assert "alert(1)" not in chapters
         assert "<img" not in chapters
         assert "Hello" in chapters
+        cover = archive.read("EPUB/cover.xhtml").decode("utf-8", errors="ignore")
+        assert "toc-category" in cover
+        assert "toc-source" in cover
+        assert cover.index("World News") < cover.index("BBC")
+        assert cover.index("BBC") < cover.index("Wire story")
+        assert cover.index("Reuters") < cover.index("Second wire")
         toc_name = next(name for name in names if name.endswith(("nav.xhtml", "toc.ncx")))
         toc = archive.read(toc_name).decode("utf-8", errors="ignore")
         assert "Long reads" in toc
         assert "World News" in toc
+        assert "BBC" in toc
+        assert "Reuters" in toc
+        assert toc.index("World News") < toc.index("BBC")
+        assert toc.index("BBC") < toc.index("Wire story")
         css = next(name for name in names if name.endswith("eink.css"))
         assert "Georgia" in archive.read(css).decode("utf-8")
+        assert "toc-stories" in archive.read(css).decode("utf-8")
+
+
+def test_group_stories_by_source_keeps_first_seen_order():
+    from app.services.briefing import group_stories_by_source
+
+    grouped = group_stories_by_source(
+        [
+            {"title": "A", "source": "BBC"},
+            {"title": "B", "source": "Reuters"},
+            {"title": "C", "source": "BBC"},
+        ]
+    )
+    assert [name for name, _items in grouped] == ["BBC", "Reuters"]
+    assert [story["title"] for story in grouped[0][1]] == ["A", "C"]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import LibraryFile
 from app.services import hostname, settings
-from app.services.briefing import briefing_title
+from app.services.briefing import available_daily_papers, briefing_title
 from app.services.library import media_type_for
 
 ATOM = "http://www.w3.org/2005/Atom"
@@ -26,12 +26,15 @@ def atom_updated(value: datetime | None = None) -> str:
     return when.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def briefing_entry_title(instance_name: str = "", when: datetime | None = None) -> str:
-    when = when or datetime.now(timezone.utc)
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    date = when.astimezone(timezone.utc).strftime("%d %b %Y")
-    return f"{briefing_title(instance_name)} — {date}"
+def briefing_entry_title(instance_name: str = "", when: datetime | date | None = None) -> str:
+    if isinstance(when, datetime):
+        day = when.astimezone().date() if when.tzinfo else when.date()
+    elif isinstance(when, date):
+        day = when
+    else:
+        day = datetime.now().date()
+    date_label = day.strftime("%d %b %Y")
+    return f"{briefing_title(instance_name)} — {date_label}"
 
 
 def _text(parent: Element, tag: str, value: str) -> Element:
@@ -83,7 +86,7 @@ def navigation_feed(db: Session) -> str:
     )
     briefing = SubElement(feed, "entry")
     _text(briefing, "id", "urn:newscast:opds:briefing")
-    _text(briefing, "title", "Today's briefing")
+    _text(briefing, "title", "Daily Briefings")
     _text(briefing, "updated", updated)
     _link(briefing, rel="subsection", href=f"{base}/opds/briefing", type_=ACQ_TYPE)
 
@@ -98,30 +101,29 @@ def navigation_feed(db: Session) -> str:
 def briefing_feed(db: Session) -> str:
     base = _base(db)
     instance = settings.get_value(db, "instance_name")
-    when = datetime.now(timezone.utc)
-    updated = atom_updated(when)
-    title = briefing_entry_title(instance, when)
+    papers = available_daily_papers(days=2)
+    latest = datetime.combine(papers[0], datetime.min.time()) if papers else None
+    updated = atom_updated(latest)
     feed = _feed(
-        title=title,
+        title="Daily Briefings",
         feed_id="urn:newscast:opds:briefing",
         updated=updated,
         self_href=f"{base}/opds/briefing",
         start_href=f"{base}/opds",
         kind="acquisition",
     )
-    entry = SubElement(feed, "entry")
-    _text(entry, "id", f"urn:newscast:briefing:{when.date().isoformat()}")
-    _text(entry, "title", title)
-    _text(entry, "updated", updated)
-    _link(entry, rel=ACQUISITION_REL, href=f"{base}/api/x3/news.epub", type_=EPUB_TYPE)
-
-    yesterday = when - timedelta(days=1)
-    y_title = briefing_entry_title(instance, yesterday)
-    y_entry = SubElement(feed, "entry")
-    _text(y_entry, "id", f"urn:newscast:briefing:{yesterday.date().isoformat()}")
-    _text(y_entry, "title", y_title)
-    _text(y_entry, "updated", atom_updated(yesterday))
-    _link(y_entry, rel=ACQUISITION_REL, href=f"{base}/api/x3/news.epub?day=yesterday", type_=EPUB_TYPE)
+    for day in papers:
+        title = briefing_entry_title(instance, day)
+        entry = SubElement(feed, "entry")
+        _text(entry, "id", f"urn:newscast:briefing:{day.isoformat()}")
+        _text(entry, "title", title)
+        _text(entry, "updated", atom_updated(datetime.combine(day, datetime.min.time())))
+        _link(
+            entry,
+            rel=ACQUISITION_REL,
+            href=f"{base}/api/x3/news.epub?day={day.isoformat()}",
+            type_=EPUB_TYPE,
+        )
     return _xml(feed)
 
 

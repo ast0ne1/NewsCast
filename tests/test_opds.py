@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,7 +11,6 @@ from app.db import get_db
 from app.models import Base, LibraryFile
 from app.routers import opds as opds_router
 from app.services import hostname, opds, settings
-
 
 def _session() -> Session:
     engine = create_engine(
@@ -35,7 +35,9 @@ def _client(db: Session) -> TestClient:
 
 
 def _prep(monkeypatch, db: Session) -> None:
+    monkeypatch.setattr(hostname.env, "port", 8080)
     monkeypatch.setattr(hostname.env, "public_base_url", "http://127.0.0.1:8080")
+    monkeypatch.setattr(hostname, "get_lan_ip", lambda: "")
     monkeypatch.setattr(settings.env, "x3_sync_token", "")
     monkeypatch.setattr(settings.env, "x3_catalog_login", "")
     monkeypatch.setattr(settings.env, "x3_catalog_username", "")
@@ -45,20 +47,37 @@ def _prep(monkeypatch, db: Session) -> None:
 
 def test_briefing_entry_title_uses_instance_and_date():
     when = datetime(2026, 9, 13, 15, 0, tzinfo=timezone.utc)
-    assert opds.briefing_entry_title("Work", when) == "NewsCast · Work — 13 Sep 2026"
-    assert opds.briefing_entry_title("", when) == "NewsCast briefing — 13 Sep 2026"
+    assert opds.briefing_entry_title("Work", when.date()) == "NewsCast · Work — 13 Sep 2026"
+    assert opds.briefing_entry_title("", date(2026, 9, 13)) == "NewsCast briefing — 13 Sep 2026"
 
 
-def test_briefing_feed_has_epub_acquisition(monkeypatch):
+def test_briefing_feed_lists_existing_papers_newest_first(tmp_path: Path, monkeypatch):
     db = _session()
     _prep(monkeypatch, db)
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    (tmp_path / "news-2026-09-14.epub").write_bytes(b"PK today")
+    (tmp_path / "news-2026-09-13.epub").write_bytes(b"PK yesterday")
     settings.set_value(db, "instance_name", "Work")
     xml = opds.briefing_feed(db)
-    assert "NewsCast · Work —" in xml
-    assert 'type="application/epub+zip"' in xml
-    assert 'rel="http://opds-spec.org/acquisition"' in xml
-    assert "http://127.0.0.1:8080/api/x3/news.epub" in xml
-    assert "http://127.0.0.1:8080/api/x3/news.epub?day=yesterday" in xml
+    assert "<title>Daily Briefings</title>" in xml
+    assert "NewsCast · Work — 14 Sep 2026" in xml
+    assert "NewsCast · Work — 13 Sep 2026" in xml
+    assert xml.index("2026-09-14") < xml.index("2026-09-13")
+    assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-14" in xml
+    assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-13" in xml
+    assert "day=yesterday" not in xml
+
+
+def test_briefing_feed_omits_missing_yesterday(tmp_path: Path, monkeypatch):
+    db = _session()
+    _prep(monkeypatch, db)
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    (tmp_path / "news-2026-09-14.epub").write_bytes(b"PK today")
+    xml = opds.briefing_feed(db)
+    assert "day=2026-09-14" in xml
+    assert "2026-09-13" not in xml
 
 
 def test_library_lists_uploaded_file(monkeypatch):
@@ -86,8 +105,9 @@ def test_opds_open_without_token(monkeypatch):
     client = _client(db)
     response = client.get("/opds")
     assert response.status_code == 200
-    assert "Today's briefing" in response.text
+    assert "Daily Briefings" in response.text
     assert "/opds/briefing" in response.text
+    assert "Library" in response.text
     assert "profile=opds-catalog" in response.headers["content-type"]
 
 
@@ -99,7 +119,7 @@ def test_opds_stays_open_when_catalog_login_off(monkeypatch):
     client = _client(db)
     response = client.get("/opds")
     assert response.status_code == 200
-    assert "Today's briefing" in response.text
+    assert "Daily Briefings" in response.text
 
 
 def test_opds_requires_basic_when_token_set(monkeypatch):
@@ -122,7 +142,7 @@ def test_opds_requires_basic_when_token_set(monkeypatch):
 
     ok = client.get("/opds", auth=("newscast", "secret-token"))
     assert ok.status_code == 200
-    assert "Today's briefing" in ok.text
+    assert "Daily Briefings" in ok.text
 
 
 def test_opds_uses_configured_username(monkeypatch):
@@ -138,4 +158,4 @@ def test_opds_uses_configured_username(monkeypatch):
 
     ok = client.get("/opds", auth=("Work", "secret-token"))
     assert ok.status_code == 200
-    assert "Today's briefing" in ok.text
+    assert "Daily Briefings" in ok.text

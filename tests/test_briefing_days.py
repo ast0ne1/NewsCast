@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -16,12 +16,14 @@ def _session() -> Session:
 def test_normalize_briefing_day():
     assert normalize_briefing_day(None) == "today"
     assert normalize_briefing_day("Yesterday") == "yesterday"
+    assert normalize_briefing_day("2026-09-13") == "2026-09-13"
     assert normalize_briefing_day("nope") == "today"
 
 
 def test_today_vs_yesterday_selection(monkeypatch):
     now = datetime(2026, 9, 13, 15, tzinfo=timezone.utc)
     monkeypatch.setattr("app.services.briefing.utcnow", lambda: now)
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 13))
     monkeypatch.setattr("app.services.briefing.env.story_retention_days", 7)
     db = _session()
     db.add_all(

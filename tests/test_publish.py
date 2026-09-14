@@ -118,6 +118,20 @@ def test_x3_serves_frozen_file_not_live_rebuild(tmp_path: Path, monkeypatch):
     assert response.content == b"PK frozen-paper"
 
 
+def test_x3_serves_iso_day_with_dated_filename(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "x3_catalog_login", "0")
+    target = tmp_path / "news-2026-09-13.epub"
+    target.write_bytes(b"PK yesterday-paper")
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    client = _client(db)
+    response = client.get("/api/x3/news.epub?day=2026-09-13")
+    assert response.status_code == 200
+    assert response.content == b"PK yesterday-paper"
+    assert "NewsCast-2026-09-13.epub" in response.headers.get("content-disposition", "")
+
+
 def test_x3_missing_paper_is_404(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     db = _session()

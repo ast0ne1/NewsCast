@@ -26,7 +26,10 @@ def get_public_base_url(db: Session) -> str:
     host = normalize_hostname(settings.get_value(db, "device_hostname"))
     if host:
         return f"http://{host}.local:{env.port}"
-    return env.public_base_url.rstrip("/")
+    public = env.public_base_url.rstrip("/")
+    if public and not _is_loopback(public):
+        return public
+    return get_lan_url()
 
 
 def get_lan_ip() -> str:

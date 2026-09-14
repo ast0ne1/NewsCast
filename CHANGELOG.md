@@ -11,6 +11,13 @@ Current version is **0.0.0.3**. New work is appended under that version until yo
 
 ### Changed
 - Reader host, upload folder, and push hints follow the chosen device (CrossPoint File Transfer vs KOReader SSH)
+- OPDS navigation uses **Daily Briefings** (today and yesterday, newest first) beside Library; only published papers appear
+- Reader EPUB contents and TOC nest Category → Source → stories, with more space between entries for e-ink reading
+
+### Fixed
+- Status OPDS and catalog links use the LAN IP when `PUBLIC_BASE_URL` is still localhost, so readers are not pointed at 127.0.0.1
+- Daily briefing downloads use dated filenames, and new papers stamp the local paper date in the EPUB so the cover matches the calendar day
+- Story summaries drop AI preambles such as “Here is a concise news briefing based on the provided text”
 
 ## 0.0.0.2 — 2026-09-13
 

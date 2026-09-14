@@ -16,6 +16,13 @@ def _day_key(day: str | None) -> str:
     return "today" if key == "all" else key
 
 
+def _download_name(path, key: str, suffix: str) -> str:
+    date_part = path.stem.removeprefix("news-")
+    if date_part and date_part != path.stem:
+        return f"NewsCast-{date_part}.{suffix}"
+    return "newscast-news-yesterday.epub" if key == "yesterday" else f"newscast-news.{suffix}"
+
+
 @router.get("/news")
 def x3_news(db: Annotated[Session, Depends(get_db)], day: str = "today"):
     return current_briefing_payload(db, day=_day_key(day))
@@ -24,7 +31,7 @@ def x3_news(db: Annotated[Session, Depends(get_db)], day: str = "today"):
 @router.get("/news.txt", response_class=PlainTextResponse)
 def x3_news_txt(db: Annotated[Session, Depends(get_db)], day: str = "today"):
     key = _day_key(day)
-    path = frozen_briefing_path(key, suffix="txt", fallback=key != "yesterday")
+    path = frozen_briefing_path(key, suffix="txt", fallback=key == "today")
     if path is None:
         raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
     return path.read_text(encoding="utf-8")
@@ -33,8 +40,11 @@ def x3_news_txt(db: Annotated[Session, Depends(get_db)], day: str = "today"):
 @router.get("/news.epub")
 def x3_news_epub(db: Annotated[Session, Depends(get_db)], day: str = "today"):
     key = _day_key(day)
-    path = frozen_briefing_path(key, suffix="epub", fallback=key != "yesterday")
+    path = frozen_briefing_path(key, suffix="epub", fallback=key == "today")
     if path is None:
         raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
-    filename = "newscast-news-yesterday.epub" if key == "yesterday" else "newscast-news.epub"
-    return FileResponse(path, media_type="application/epub+zip", filename=filename)
+    return FileResponse(
+        path,
+        media_type="application/epub+zip",
+        filename=_download_name(path, key, "epub"),
+    )

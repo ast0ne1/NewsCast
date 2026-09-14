@@ -21,20 +21,77 @@ BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BRIEFING_STORIES = 20
 BRIEFING_DAYS = {"today", "yesterday", "all"}
 BRIEFING_SAVE_RE = re.compile(r"(?:NewsCast|news)-(\d{4}-\d{2}-\d{2})\.(epub|txt)$", re.I)
+ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KEEP_DATED_BRIEFINGS = 7
 DEFAULT_PUBLISH_AT = "06:30"
 SAVED_CATEGORY = "longreads"
 SAVED_CATEGORY_LABEL = "Long reads"
 EINK_CSS = """
-body { font-family: Georgia, "Times New Roman", serif; font-size: 1.15em; line-height: 1.45; color: #111; background: #fff; margin: 1.2em; }
-h1 { font-size: 1.7em; line-height: 1.2; margin: 0 0 0.4em; }
-h2 { font-size: 1.25em; line-height: 1.25; margin: 1.2em 0 0.4em; }
-h3 { font-size: 1.05em; margin: 1em 0 0.3em; }
-p, li { margin: 0 0 0.7em; }
-a { color: #111; }
-.meta { font-style: italic; color: #333; }
-.contents ol { padding-left: 1.2em; }
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.12em;
+  line-height: 1.5;
+  color: #111;
+  background: #fff;
+  margin: 1.1em 1.2em 1.6em;
+}
+h1 {
+  font-size: 1.55em;
+  line-height: 1.25;
+  margin: 0 0 0.35em;
+  font-weight: bold;
+}
+h2 {
+  font-size: 1.2em;
+  line-height: 1.3;
+  margin: 1.4em 0 0.55em;
+  font-weight: bold;
+}
+h3 {
+  font-size: 1.05em;
+  line-height: 1.3;
+  margin: 1.25em 0 0.45em;
+  font-weight: bold;
+}
+h4 {
+  font-size: 0.98em;
+  line-height: 1.3;
+  margin: 0.95em 0 0.35em;
+  font-weight: normal;
+  font-style: italic;
+}
+p { margin: 0 0 0.75em; }
+a { color: #111; text-decoration: underline; }
+.meta { font-style: italic; color: #333; margin: 0 0 0.35em; }
+.byline { font-style: italic; color: #333; margin: 0 0 1em; }
+.cover-rule {
+  border: 0;
+  border-top: 1px solid #111;
+  margin: 0.9em 0 1.1em;
+}
+.contents h2 { margin-top: 0.4em; }
+.contents .toc-category { margin: 0 0 1.1em; }
+.contents .toc-category h3 {
+  margin: 0 0 0.55em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid #111;
+}
+.contents .toc-source { margin: 0 0 0.85em; }
+.contents .toc-source h4 { margin: 0.7em 0 0.4em; }
+.contents ol.toc-stories {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.contents ol.toc-stories li {
+  margin: 0 0 0.85em;
+  padding: 0;
+  line-height: 1.4;
+}
 .story { page-break-before: always; }
+.story h1 { margin-bottom: 0.45em; }
+.story .body p { margin-bottom: 0.85em; }
+.story .original { margin-top: 1.2em; }
 img { display: none; }
 """
 _ALLOWED_TAGS = {"p", "br", "em", "strong", "b", "i", "u", "a", "ul", "ol", "li", "blockquote", "h3", "h4", "h5", "h6"}
@@ -44,7 +101,24 @@ _DROP_TAGS = {"img", "video", "audio", "source", "iframe", "object", "embed"}
 
 def normalize_briefing_day(value: str | None) -> str:
     key = (value or "today").strip().lower()
+    if ISO_DAY_RE.fullmatch(key):
+        return key
     return key if key in BRIEFING_DAYS else "today"
+
+
+def paper_day_for(value: str | None = "today", now: datetime | None = None) -> date | None:
+    key = normalize_briefing_day(value)
+    if ISO_DAY_RE.fullmatch(key):
+        try:
+            return date.fromisoformat(key)
+        except ValueError:
+            return None
+    today = _local_today(now)
+    if key == "yesterday":
+        return today - timedelta(days=1)
+    if key == "all":
+        return None
+    return today
 
 
 def briefing_path(day: str | None = "today") -> str:
@@ -64,10 +138,9 @@ def _day_window(day: str, now: datetime | None = None) -> tuple[datetime, dateti
     key = normalize_briefing_day(day)
     if key == "all":
         return None
-    when = now or utcnow()
-    target = when.astimezone(timezone.utc).date()
-    if key == "yesterday":
-        target = target - timedelta(days=1)
+    target = paper_day_for(key, now=now)
+    if target is None:
+        return None
     start = datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc)
     return start, start + timedelta(days=1)
 
@@ -288,16 +361,27 @@ def frozen_briefing_path(
     now: datetime | None = None,
 ) -> Path | None:
     key = normalize_briefing_day(day)
-    today = _local_today(now)
-    target = today - timedelta(days=1) if key == "yesterday" else today
+    target = paper_day_for(key, now=now)
+    if target is None:
+        return None
     path = dated_briefing_path(target, suffix)
     if path.exists():
         return path
-    if fallback and key != "yesterday":
-        yesterday = dated_briefing_path(today - timedelta(days=1), suffix)
+    if fallback and key == "today":
+        yesterday = dated_briefing_path(_local_today(now) - timedelta(days=1), suffix)
         if yesterday.exists():
             return yesterday
     return None
+
+
+def available_daily_papers(*, now: datetime | None = None, days: int = 2) -> list[date]:
+    today = _local_today(now)
+    found: list[date] = []
+    for offset in range(max(1, days)):
+        day = today - timedelta(days=offset)
+        if dated_briefing_path(day).exists():
+            found.append(day)
+    return found
 
 
 def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS) -> int:
@@ -356,6 +440,7 @@ def publish_daily_briefing(
     created = overwrite or not dest.exists()
     if created:
         payload = current_briefing_payload(db, day="today")
+        payload["paper_date"] = day.isoformat()
         write_briefing_files(payload, stem=dated_stem(day))
     prune_old_briefings()
     if created:
@@ -428,12 +513,37 @@ def _story_body(summary: str) -> str:
 
 
 def _payload_date_label(payload: dict) -> str:
+    paper = str(payload.get("paper_date") or "").strip()
+    if paper:
+        try:
+            return date.fromisoformat(paper[:10]).strftime("%d %b %Y")
+        except ValueError:
+            pass
     raw = str(payload.get("generated_at") or "")
     try:
         when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        return when.strftime("%d %b %Y")
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return when.astimezone().strftime("%d %b %Y")
     except ValueError:
         return raw[:10]
+
+
+def _payload_paper_date(payload: dict) -> str:
+    paper = str(payload.get("paper_date") or "").strip()
+    if paper:
+        try:
+            return date.fromisoformat(paper[:10]).isoformat()
+        except ValueError:
+            pass
+    raw = str(payload.get("generated_at") or "")
+    try:
+        when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return when.astimezone().date().isoformat()
+    except ValueError:
+        return _local_today().isoformat()
 
 
 def group_stories(stories: list[dict], labels: dict[str, str] | None = None) -> list[tuple[str, str, list[dict]]]:
@@ -459,6 +569,20 @@ def group_stories(stories: list[dict], labels: dict[str, str] | None = None) -> 
             label = names.get(key) or BUILTIN_LABELS.get(key) or items[0].get("category_label") or key
         result.append((key, label, items))
     return result
+
+
+def group_stories_by_source(stories: list[dict]) -> list[tuple[str, list[dict]]]:
+    groups: list[tuple[str, list[dict]]] = []
+    index: dict[str, list[dict]] = {}
+    for story in stories:
+        source = (story.get("source") or "").strip() or "Unknown"
+        bucket = index.get(source)
+        if bucket is None:
+            bucket = []
+            index[source] = bucket
+            groups.append((source, bucket))
+        bucket.append(story)
+    return groups
 
 
 def stories_payload(
@@ -518,28 +642,29 @@ def render_txt(payload: dict) -> str:
     for _key, label, group in group_stories(stories):
         lines.append(label)
         lines.append("")
-        for story in group:
-            lines.append(f"{index}. {story['title']}")
-            if story.get("source"):
-                lines.append(story["source"])
-            if story.get("published_label"):
-                lines.append(story["published_label"])
-            lines.append(story["summary"])
-            if story.get("url"):
-                lines.append(story["url"])
+        for source, source_stories in group_stories_by_source(group):
+            lines.append(source)
             lines.append("")
-            index += 1
+            for story in source_stories:
+                lines.append(f"{index}. {story['title']}")
+                if story.get("published_label"):
+                    lines.append(story["published_label"])
+                lines.append(story["summary"])
+                if story.get("url"):
+                    lines.append(story["url"])
+                lines.append("")
+                index += 1
     return "\n".join(lines).rstrip() + "\n"
 
 
 def write_epub(payload: dict, dest: Path) -> None:
     book = epub.EpubBook()
-    generated = payload.get("generated_at") or utcnow().isoformat()
     heading = payload.get("title") or "NewsCast briefing"
     date_label = _payload_date_label(payload)
+    paper_day = _payload_paper_date(payload)
     stories = payload.get("stories") or []
-    book.set_identifier(f"newscast-{generated}")
-    book.set_title(f"{heading} {generated[:10]}")
+    book.set_identifier(f"newscast-{paper_day}")
+    book.set_title(f"{heading} {paper_day}")
     book.set_language("en")
     book.add_author("NewsCast")
 
@@ -554,12 +679,17 @@ def write_epub(payload: dict, dest: Path) -> None:
     if stories:
         count = len(stories)
         cover_bits.append(f'<p class="meta">{count} stor{"y" if count == 1 else "ies"}</p>')
+        cover_bits.append('<hr class="cover-rule"/>')
         cover_bits.append('<div class="contents"><h2>Contents</h2>')
         for _key, label, group in groups:
-            cover_bits.append(f"<h3>{html.escape(label)}</h3><ol>")
-            for story in group:
-                cover_bits.append(f"<li>{html.escape(story.get('title') or 'Untitled')}</li>")
-            cover_bits.append("</ol>")
+            cover_bits.append(f'<div class="toc-category"><h3>{html.escape(label)}</h3>')
+            for source, source_stories in group_stories_by_source(group):
+                cover_bits.append(f'<div class="toc-source"><h4>{html.escape(source)}</h4>')
+                cover_bits.append('<ol class="toc-stories">')
+                for story in source_stories:
+                    cover_bits.append(f"<li>{html.escape(story.get('title') or 'Untitled')}</li>")
+                cover_bits.append("</ol></div>")
+            cover_bits.append("</div>")
         cover_bits.append("</div>")
     else:
         cover_bits.append("<p>No stories yet.</p>")
@@ -574,25 +704,36 @@ def write_epub(payload: dict, dest: Path) -> None:
     toc: list = []
     index = 1
     for _key, label, group in groups:
-        section_chapters = []
-        for story in group:
-            title = story.get("title") or "Untitled"
-            chapter = epub.EpubHtml(title=title[:80], file_name=f"story-{index}.xhtml", lang="en")
-            source = f'<p class="meta">{html.escape(story["source"])}</p>' if story.get("source") else ""
-            published = f'<p class="meta">{html.escape(story["published_label"])}</p>' if story.get("published_label") else ""
-            url = story.get("url") or ""
-            link = f'<p><a href="{html.escape(url, quote=True)}">Original</a></p>' if url else ""
-            chapter.content = (
-                f'<div class="story"><h1>{html.escape(title)}</h1>{source}{published}{_story_body(story.get("summary") or "")}{link}</div>'
-            )
-            chapter.add_item(style)
-            chapter.add_link(href="style/eink.css", rel="stylesheet", type="text/css")
-            book.add_item(chapter)
-            chapters.append(chapter)
-            section_chapters.append(chapter)
-            index += 1
-        if section_chapters:
-            toc.append((epub.Section(label), tuple(section_chapters)))
+        source_sections = []
+        for source, source_stories in group_stories_by_source(group):
+            source_chapters = []
+            for story in source_stories:
+                title = story.get("title") or "Untitled"
+                chapter = epub.EpubHtml(title=title[:120], file_name=f"story-{index}.xhtml", lang="en")
+                byline_bits = [bit for bit in (story.get("source"), story.get("published_label")) if bit]
+                byline = (
+                    f'<p class="byline">{html.escape(" · ".join(byline_bits))}</p>' if byline_bits else ""
+                )
+                url = story.get("url") or ""
+                link = (
+                    f'<p class="original"><a href="{html.escape(url, quote=True)}">Original article</a></p>'
+                    if url
+                    else ""
+                )
+                chapter.content = (
+                    f'<div class="story"><h1>{html.escape(title)}</h1>{byline}'
+                    f'<div class="body">{_story_body(story.get("summary") or "")}</div>{link}</div>'
+                )
+                chapter.add_item(style)
+                chapter.add_link(href="style/eink.css", rel="stylesheet", type="text/css")
+                book.add_item(chapter)
+                chapters.append(chapter)
+                source_chapters.append(chapter)
+                index += 1
+            if source_chapters:
+                source_sections.append((epub.Section(source), tuple(source_chapters)))
+        if source_sections:
+            toc.append((epub.Section(label), tuple(source_sections)))
 
     book.toc = toc or [cover]
     book.add_item(epub.EpubNcx())

@@ -35,8 +35,17 @@ def test_public_base_url_uses_hostname(monkeypatch):
 def test_public_base_url_falls_back_to_env(monkeypatch):
     monkeypatch.setattr(hostname.env, "port", 8080)
     monkeypatch.setattr(hostname.env, "public_base_url", "http://192.168.1.10:8080")
+    monkeypatch.setattr(hostname, "get_lan_ip", lambda: "192.168.1.20")
     db = _session()
     assert hostname.get_public_base_url(db) == "http://192.168.1.10:8080"
+
+
+def test_public_base_url_uses_lan_when_env_is_loopback(monkeypatch):
+    monkeypatch.setattr(hostname.env, "port", 8080)
+    monkeypatch.setattr(hostname.env, "public_base_url", "http://127.0.0.1:8080")
+    monkeypatch.setattr(hostname, "get_lan_ip", lambda: "192.168.0.223")
+    db = _session()
+    assert hostname.get_public_base_url(db) == "http://192.168.0.223:8080"
 
 
 def test_share_url_uses_hostname(monkeypatch):
