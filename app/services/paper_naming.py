@@ -8,11 +8,20 @@ from sqlalchemy.orm import Session
 from app.services import hostname, settings
 
 DEFAULT_TITLE_PATTERN = "NewsCast - {hostname} {instance} {date}"
+DEFAULT_CATEGORY_TITLE_PATTERN = "NewsCast - {hostname} {instance} {category} {date}"
 TITLE_TOKENS = (
     ("product", "NewsCast"),
     ("hostname", "Device hostname"),
     ("instance", "Device instance name"),
     ("label", "Paper label"),
+    ("date", "Paper date"),
+)
+CATEGORY_TITLE_TOKENS = (
+    ("product", "NewsCast"),
+    ("hostname", "Device hostname"),
+    ("instance", "Device instance name"),
+    ("label", "Paper label"),
+    ("category", "Category name"),
     ("date", "Paper date"),
 )
 DATE_FORMATS = [
@@ -24,7 +33,7 @@ DATE_FORMATS = [
 DATE_FORMAT_IDS = {value for value, _label in DATE_FORMATS}
 DEFAULT_DATE_FORMAT = "iso"
 
-_TOKEN_RE = re.compile(r"\{(product|hostname|instance|label|date)\}", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"\{(product|hostname|instance|label|category|date)\}", re.IGNORECASE)
 _BAD_FILE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _SPACE_RE = re.compile(r"\s+")
 _DASH_RE = re.compile(r"(?:\s*-\s*){2,}")
@@ -58,8 +67,17 @@ def normalize_title_pattern(value: str | None) -> str:
     return raw[:120] if raw else DEFAULT_TITLE_PATTERN
 
 
+def normalize_category_title_pattern(value: str | None) -> str:
+    raw = (value or "").strip()
+    return raw[:120] if raw else DEFAULT_CATEGORY_TITLE_PATTERN
+
+
 def reader_title_pattern(db: Session) -> str:
     return normalize_title_pattern(settings.get_value(db, "reader_title_pattern"))
+
+
+def reader_category_title_pattern(db: Session) -> str:
+    return normalize_category_title_pattern(settings.get_value(db, "reader_category_title_pattern"))
 
 
 def normalize_paper_label(value: str | None) -> str:
@@ -115,6 +133,7 @@ def render_paper_name(
     hostname_value: str = "",
     instance: str = "",
     label: str = "",
+    category: str = "",
     product: str = "NewsCast",
 ) -> str:
     date_text = format_paper_date(day, date_style)
@@ -123,6 +142,7 @@ def render_paper_name(
         "hostname": (hostname_value or "").strip(),
         "instance": (instance or "").strip(),
         "label": (label or "").strip(),
+        "category": (category or "").strip(),
         "date": date_text,
     }
 
@@ -153,6 +173,18 @@ def paper_display_title(db: Session, day: date) -> str:
     )
 
 
+def paper_category_display_title(db: Session, day: date, category_label: str) -> str:
+    return render_paper_name(
+        reader_category_title_pattern(db),
+        day=day,
+        date_style=reader_date_format(db),
+        hostname_value=hostname.normalize_hostname(settings.get_value(db, "device_hostname")),
+        instance=reader_instance_name(db),
+        label=reader_paper_label(db),
+        category=(category_label or "").strip(),
+    )
+
+
 def paper_download_name(db: Session, day: date, suffix: str = "epub") -> str:
     return safe_filename(paper_display_title(db, day), suffix=suffix)
 
@@ -169,5 +201,4 @@ def day_from_briefing_path(path_stem: str) -> date | None:
 
 
 def paper_category_download_name(db: Session, day: date, category_label: str, suffix: str = "epub") -> str:
-    title = f"{paper_display_title(db, day)} - {category_label}".strip(" -")
-    return safe_filename(title, suffix=suffix)
+    return safe_filename(paper_category_display_title(db, day, category_label), suffix=suffix)

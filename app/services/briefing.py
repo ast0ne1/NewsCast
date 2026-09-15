@@ -19,6 +19,7 @@ from app.services.cover_image import render_newspaper_cover
 from app.services.filters import story_kept
 from app.services.paper_naming import (
     format_paper_date,
+    paper_category_display_title,
     paper_display_title,
     paper_download_name,
     reader_date_format,
@@ -641,15 +642,15 @@ def write_category_briefing_files(db: Session, payload: dict, day: date) -> list
         grouped.setdefault(key, []).append(story)
 
     written: list[Path] = []
-    base_title = payload.get("paper_title") or payload.get("title") or briefing_title()
     for key, stories in grouped.items():
         if not stories:
             continue
         label = labels.get(key) or stories[0].get("category_label") or key
         cat_payload = dict(payload)
         cat_payload["stories"] = stories
-        cat_payload["title"] = f"{base_title} · {label}"
-        cat_payload["paper_title"] = cat_payload["title"]
+        title = paper_category_display_title(db, day, label)
+        cat_payload["title"] = title
+        cat_payload["paper_title"] = title
         paths = write_briefing_files(cat_payload, stem=dated_category_stem(day, key))
         written.append(paths["epub"])
     return written

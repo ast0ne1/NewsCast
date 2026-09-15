@@ -373,13 +373,16 @@ document.querySelectorAll("[data-reader-device]").forEach((select) => {
 document.querySelectorAll("[data-paper-naming]").forEach((root) => {
   const form = root.closest("form");
   const patternInput = root.querySelector("[data-paper-pattern]");
+  const categoryPatternInput = root.querySelector("[data-paper-category-pattern]");
   const labelInput = root.querySelector("[data-paper-label]");
   const dateSelect = root.querySelector("[data-paper-date-format]");
   const preview = root.querySelector("[data-paper-preview]");
+  const categoryPreview = root.querySelector("[data-paper-category-preview]");
   if (!patternInput || !preview) return;
   const hostInput = form?.querySelector("[name=device_hostname]");
   const instanceInput = form?.querySelector("[name=instance_name]");
   const defaultPattern = "NewsCast - {hostname} {instance} {date}";
+  const defaultCategoryPattern = "NewsCast - {hostname} {instance} {category} {date}";
 
   function collapseName(value) {
     let text = String(value || "")
@@ -395,39 +398,59 @@ document.querySelectorAll("[data-paper-naming]").forEach((root) => {
     return option?.dataset.paperDateSample || "";
   }
 
-  function renderPreview() {
-    const values = {
+  function tokenValues(extra = {}) {
+    return {
       product: "NewsCast",
       hostname: (hostInput?.value || "").trim(),
       instance: (instanceInput?.value || "").trim(),
       label: (labelInput?.value || "").trim(),
+      category: "Tech",
       date: dateSample(),
+      ...extra,
     };
-    const pattern = (patternInput.value || "").trim() || defaultPattern;
-    const filled = pattern.replace(/\{(product|hostname|instance|label|date)\}/gi, (_, key) => values[key.toLowerCase()] || "");
-    preview.textContent = collapseName(filled) || `NewsCast ${values.date}`.trim();
   }
 
-  function insertToken(token) {
-    const start = patternInput.selectionStart ?? patternInput.value.length;
-    const end = patternInput.selectionEnd ?? start;
-    const before = patternInput.value.slice(0, start);
-    const after = patternInput.value.slice(end);
+  function fillPattern(pattern, fallback, values) {
+    const source = (pattern || "").trim() || fallback;
+    const filled = source.replace(
+      /\{(product|hostname|instance|label|category|date)\}/gi,
+      (_, key) => values[key.toLowerCase()] || "",
+    );
+    return collapseName(filled) || `NewsCast ${values.date}`.trim();
+  }
+
+  function renderPreview() {
+    const values = tokenValues();
+    preview.textContent = fillPattern(patternInput.value, defaultPattern, values);
+    if (categoryPreview && categoryPatternInput) {
+      categoryPreview.textContent = fillPattern(categoryPatternInput.value, defaultCategoryPattern, values);
+    }
+  }
+
+  function insertToken(input, token) {
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
     const needsSpaceBefore = before.length && !/\s$/.test(before) && !/-$/.test(before);
     const needsSpaceAfter = after.length && !/^\s/.test(after) && !/^-/.test(after);
     const chunk = `${needsSpaceBefore ? " " : ""}${token}${needsSpaceAfter ? " " : ""}`;
     const next = `${before}${chunk}${after}`.slice(0, 120);
-    patternInput.value = next;
+    input.value = next;
     const cursor = Math.min(before.length + chunk.length, next.length);
-    patternInput.focus();
-    patternInput.setSelectionRange(cursor, cursor);
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
     renderPreview();
   }
 
   root.querySelectorAll("[data-paper-token]").forEach((button) => {
-    button.addEventListener("click", () => insertToken(button.dataset.paperToken || ""));
+    button.addEventListener("click", () => insertToken(patternInput, button.dataset.paperToken || ""));
   });
-  [patternInput, labelInput, dateSelect, hostInput, instanceInput].forEach((el) => {
+  root.querySelectorAll("[data-paper-category-token]").forEach((button) => {
+    button.addEventListener("click", () => insertToken(categoryPatternInput, button.dataset.paperCategoryToken || ""));
+  });
+  [patternInput, categoryPatternInput, labelInput, dateSelect, hostInput, instanceInput].forEach((el) => {
     if (!el) return;
     el.addEventListener("input", renderPreview);
     el.addEventListener("change", renderPreview);

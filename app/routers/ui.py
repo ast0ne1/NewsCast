@@ -500,12 +500,15 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "reader_ssh_user": settings.reader_ssh_user(db),
             "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
             "reader_title_pattern": paper_naming.reader_title_pattern(db),
+            "reader_category_title_pattern": paper_naming.reader_category_title_pattern(db),
             "reader_date_format": paper_naming.reader_date_format(db),
             "reader_date_formats": paper_naming.DATE_FORMATS,
             "reader_title_tokens": paper_naming.TITLE_TOKENS,
+            "reader_category_title_tokens": paper_naming.CATEGORY_TITLE_TOKENS,
             "reader_date_previews": paper_naming.date_format_previews(date.today()),
             "reader_paper_label": settings.get_value(db, "reader_paper_label"),
             "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
+            "reader_category_title_preview": paper_naming.paper_category_display_title(db, date.today(), "Tech"),
             "delivery": delivery_status(db),
         },
     )
@@ -879,6 +882,7 @@ async def save_settings(
     reader_ssh_password: Annotated[str, Form()] = "",
     clear_reader_ssh_password: Annotated[str, Form()] = "",
     reader_title_pattern: Annotated[str, Form()] = "",
+    reader_category_title_pattern: Annotated[str, Form()] = "",
     reader_date_format: Annotated[str, Form()] = "iso",
     reader_paper_label: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "device",
@@ -976,6 +980,11 @@ async def save_settings(
     elif reader_ssh_password.strip():
         settings.set_value(db, "reader_ssh_password", reader_ssh_password.strip())
     settings.set_value(db, "reader_title_pattern", paper_naming.normalize_title_pattern(reader_title_pattern))
+    settings.set_value(
+        db,
+        "reader_category_title_pattern",
+        paper_naming.normalize_category_title_pattern(reader_category_title_pattern),
+    )
     settings.set_value(db, "reader_date_format", paper_naming.normalize_date_format(reader_date_format))
     label = paper_naming.normalize_paper_label(reader_paper_label)
     if label:

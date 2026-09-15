@@ -10,6 +10,7 @@ Current version is **0.0.0.6**. New work is appended under that version until yo
 - Category mix can allocate Briefing and daily-paper slots by percentage (blank categories share the leftover; 0 excludes)
 - Optional per-category OPDS papers: tick topics to publish separate EPUBs listed under OPDS → Categories
 - Settings Publication tab (before Schedule) for paper composition settings
+- Category papers use their own title pattern (with `{category}`) instead of suffixing the full-paper name
 
 ### Changed
 - Briefing reloads automatically when a full refresh finishes, so new and translated stories appear without a manual reload

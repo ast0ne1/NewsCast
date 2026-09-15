@@ -117,6 +117,18 @@
         {% endfor %}
       </div>
       <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
+      <p class="hint">Full paper preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
+      <label>
+        Category paper title pattern
+        <input type="text" name="reader_category_title_pattern" value="{{ reader_category_title_pattern }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="NewsCast - {hostname} {instance} {category} {date}" data-paper-category-pattern maxlength="120" />
+      </label>
+      <div class="token-chips" role="group" aria-label="Insert category pattern token">
+        {% for token, note in reader_category_title_tokens %}
+        <button class="chip-btn" type="button" data-paper-category-token="{{ '{' ~ token ~ '}' }}" title="{{ note }}">{{ '{' ~ token ~ '}' }}</button>
+        {% endfor %}
+      </div>
+      <p class="hint">Used for separate OPDS category papers. Include <code>{category}</code> for the topic name (for example Tech or World News).</p>
+      <p class="hint">Category paper preview: <strong data-paper-category-preview>{{ reader_category_title_preview }}</strong></p>
       <label>
         Paper date format
         <select name="reader_date_format" data-paper-date-format>
@@ -125,7 +137,7 @@
           {% endfor %}
         </select>
       </label>
-      <p class="hint">Live preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
+      <p class="hint">Date style applies to both the full paper and category papers.</p>
     </div>
 
     <div class="card stack">

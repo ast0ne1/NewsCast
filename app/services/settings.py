@@ -132,6 +132,7 @@ UI_KEYS = (
     "reader_ssh_user",
     "reader_ssh_password",
     "reader_title_pattern",
+    "reader_category_title_pattern",
     "reader_date_format",
     "reader_paper_label",
 )
@@ -195,6 +196,8 @@ def _default_value(key: str) -> str:
         return DEFAULT_KOBO_SSH_USER
     if key == "reader_title_pattern":
         return DEFAULT_READER_TITLE_PATTERN
+    if key == "reader_category_title_pattern":
+        return "NewsCast - {hostname} {instance} {category} {date}"
     if key == "reader_date_format":
         return DEFAULT_READER_DATE_FORMAT
     return ""

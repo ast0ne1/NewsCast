@@ -70,3 +70,29 @@ def test_instance_and_label_tokens_are_separate():
     settings.set_value(db, "reader_paper_label", "Morning paper")
     assert paper_naming.reader_paper_label(db) == "Morning paper"
     assert paper_naming.paper_display_title(db, day) == "NewsCast - Work Morning paper 2026-09-14"
+
+
+def test_category_paper_title_uses_separate_pattern():
+    day = date(2026, 9, 14)
+    db = _session()
+    settings.set_value(db, "instance_name", "Work")
+    settings.set_value(db, "device_hostname", "newscast")
+    settings.set_value(db, "reader_date_format", "iso")
+    settings.set_value(db, "reader_title_pattern", "NewsCast - {hostname} {instance} {date}")
+    settings.set_value(db, "reader_category_title_pattern", "{product} {category} — {date}")
+    assert paper_naming.paper_display_title(db, day) == "NewsCast - newscast Work 2026-09-14"
+    assert paper_naming.paper_category_display_title(db, day, "Tech") == "NewsCast Tech — 2026-09-14"
+    assert paper_naming.paper_category_download_name(db, day, "Tech") == "NewsCast Tech — 2026-09-14.epub"
+
+
+def test_render_paper_name_includes_category_token():
+    day = date(2026, 9, 14)
+    assert (
+        paper_naming.render_paper_name(
+            "{product} - {category} {date}",
+            day=day,
+            date_style="iso",
+            category="World News",
+        )
+        == "NewsCast - World News 2026-09-14"
+    )

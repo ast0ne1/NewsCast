@@ -17,7 +17,7 @@ from app.services.briefing import (
 )
 from app.services.categories import BUILTIN_LABELS, category_labels, slugify
 from app.services.library import media_type_for
-from app.services.paper_naming import paper_display_title
+from app.services.paper_naming import paper_category_display_title, paper_display_title
 
 ATOM = "http://www.w3.org/2005/Atom"
 NAV_TYPE = "application/atom+xml;profile=opds-catalog;kind=navigation"
@@ -45,12 +45,13 @@ def briefing_entry_title(
         day = when
     else:
         day = datetime.now().date()
-    if db is not None:
-        title = paper_display_title(db, day)
-    else:
-        date_label = day.strftime("%d %b %Y")
-        title = f"{briefing_title(instance_name)} — {date_label}"
     label = (category_label or "").strip()
+    if db is not None:
+        if label:
+            return paper_category_display_title(db, day, label)
+        return paper_display_title(db, day)
+    date_label = day.strftime("%d %b %Y")
+    title = f"{briefing_title(instance_name)} — {date_label}"
     return f"{title} · {label}" if label else title
 
 
