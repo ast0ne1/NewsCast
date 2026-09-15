@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Saved · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -29,7 +30,7 @@
       Remove after
       <input type="date" name="custom_date" />
     </label>
-    <button class="btn btn-primary" type="submit">Save article</button>
+    <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("bookmark") }} Save article</button>
   </div>
 </form>
 

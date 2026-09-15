@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Status · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -92,14 +93,15 @@
 </div>
 
 <div class="card stack links-card">
-  <h2>Reader</h2>
+  <h2>Your catalog URL</h2>
   {% if instance_name %}
   <p class="hint">This copy is labelled <strong>{{ instance_name }}</strong> on the briefing.</p>
   {% endif %}
+  <p class="lede catalog-url"><a class="text-link url-break" href="{{ opds_path }}">{{ opds_url }}</a></p>
+  <p class="hint">Add this address on the reader. It is your personal OPDS catalog for this account.</p>
   <p class="hint">
     {% if reader.device == 'kobo' %}
-      In KOReader: File browser → magnifying glass → OPDS catalog → add
-      <strong>{{ public_base_url }}/opds</strong>.
+      In KOReader: File browser → magnifying glass → OPDS catalog → add the URL above.
       {% if x3_catalog_login and x3_token_set %}
         Use username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings.
       {% else %}
@@ -107,8 +109,7 @@
       {% endif %}
       To push files, start KOReader’s SSH server (Tools → Network → SSH server, port 2222) while the Kobo is on Wi-Fi.
     {% else %}
-      On CrossPoint: Settings → System → OPDS Servers → add
-      <strong>{{ public_base_url }}/opds</strong>.
+      On CrossPoint: Settings → System → OPDS Servers → add the URL above.
       {% if x3_catalog_login and x3_token_set %}
         This catalog asks for username <strong>{{ x3_catalog_username }}</strong> and the catalog password from Settings. That login can crash some readers — turn it off on Settings if it does.
       {% else %}
@@ -117,15 +118,18 @@
     {% endif %}
     Add each NewsCast copy as its own catalog (Work and Home) and switch catalog for the other briefing.
     {% if public_base_url and public_base_url != request_base_url %}
-      This page is {{ request_base_url }}; catalog links use <strong>{{ public_base_url }}</strong>.
+      This page is {{ request_base_url }}; catalog links use <strong class="url-break">{{ public_base_url }}</strong>.
     {% endif %}
   </p>
-  <a class="text-link" href="/opds">{{ public_base_url }}/opds</a>
-  <a class="text-link" href="/api/x3/news">{{ public_base_url }}/api/x3/news</a>
-  <a class="text-link" href="/api/x3/news.txt">Download briefing.txt</a>
-  <a class="text-link" href="/api/x3/news.epub">Download briefing.epub</a>
-  <a class="text-link" href="/api/x3/news.epub?day=yesterday">Download yesterday.epub</a>
+  <h3>Downloads</h3>
+  <div class="url-list">
+    <a class="text-link url-break" href="{{ x3_path }}/news">{{ x3_news_url }}</a>
+    <a class="text-link" href="{{ x3_path }}/news.txt">Download briefing.txt</a>
+    <a class="text-link" href="{{ x3_path }}/news.epub">Download briefing.epub</a>
+    <a class="text-link" href="{{ x3_path }}/news.epub?day=yesterday">Download yesterday.epub</a>
+  </div>
   <p class="hint">{{ paper.message }}</p>
+  <p class="hint">Legacy shared path <code>/opds</code> still serves the admin catalog for older reader bookmarks.</p>
 </div>
 
 <div class="card stack">
@@ -144,19 +148,19 @@
   <div class="btn-row">
     <form method="post" action="/reader/poll" data-busy-label="Checking…">
       <input type="hidden" name="next" value="/status" />
-      <button class="btn btn-secondary" type="submit">Check reader</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("wifi") }} <span class="btn-label-full">Check reader</span><span class="btn-label-short">Check</span></button>
     </form>
     <form method="post" action="/reader/push">
       <input type="hidden" name="next" value="/status" />
-      <button class="btn btn-primary" type="submit">Push now</button>
+      <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("upload") }} <span class="btn-label-full">Push now</span><span class="btn-label-short">Push</span></button>
     </form>
     <form method="post" action="/reader/queue">
       <input type="hidden" name="next" value="/status" />
-      <button class="btn btn-secondary" type="submit">Queue for later</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("queue") }} <span class="btn-label-full">Queue for later</span><span class="btn-label-short">Queue</span></button>
     </form>
     <form method="post" action="/reader/publish">
       <input type="hidden" name="next" value="/status" />
-      <button class="btn btn-secondary" type="submit">Publish now</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("publish") }} <span class="btn-label-full">Publish now</span><span class="btn-label-short">Publish</span></button>
     </form>
   </div>
   {% include "_queue.html" %}
@@ -166,9 +170,9 @@
   <h2>Open on this network</h2>
   <p class="hint">Scan to open NewsCast on your phone. Same Wi‑Fi as this machine.</p>
   <div class="qr-frame" aria-hidden="true">{{ qr_svg|safe }}</div>
-  <a class="text-link" href="{{ share_url }}">{{ share_url }}</a>
+  <a class="text-link url-break" href="{{ share_url }}">{{ share_url }}</a>
   {% if lan_url and lan_url != share_url %}
-  <p class="hint">Or the LAN IP: <a class="text-link" href="{{ lan_url }}">{{ lan_url }}</a></p>
+  <p class="hint">Or the LAN IP: <a class="text-link url-break" href="{{ lan_url }}">{{ lan_url }}</a></p>
   {% endif %}
   <div class="homescreen-block">
     <h3>Add to iPhone home screen</h3>

@@ -40,6 +40,22 @@ def _safe_stem(name: str) -> str:
     return (cleaned or "document")[:60]
 
 
+def library_dir_for(user_id: int | None = None) -> Path:
+    path = LIBRARY_DIR / str(int(user_id or 1))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def library_path(item: LibraryFile) -> Path:
+    stored = item.stored_name or ""
+    path = LIBRARY_DIR / stored
+    if path.exists():
+        return path
+    # Legacy flat files
+    flat = LIBRARY_DIR / Path(stored).name
+    return flat if flat.exists() else path
+
+
 def validate_upload(filename: str, data: bytes) -> str:
     suffix = Path(filename or "").suffix.lower()
     if suffix not in ALLOWED_TYPES:
@@ -54,13 +70,23 @@ def validate_upload(filename: str, data: bytes) -> str:
     return suffix
 
 
-def add_library_file(db: Session, filename: str, data: bytes, title: str = "") -> LibraryFile:
+def add_library_file(
+    db: Session,
+    filename: str,
+    data: bytes,
+    title: str = "",
+    user_id: int | None = None,
+) -> LibraryFile:
+    uid = int(user_id or 1)
     suffix = validate_upload(filename, data)
-    stored = f"{utcnow().strftime('%Y%m%d-%H%M%S')}-{_safe_stem(filename)}{suffix}"
+    basename = f"{utcnow().strftime('%Y%m%d-%H%M%S')}-{_safe_stem(filename)}{suffix}"
+    stored = f"{uid}/{basename}"
     path = LIBRARY_DIR / stored
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     display = (title or "").strip() or Path(filename).stem
     item = LibraryFile(
+        user_id=uid,
         title=display[:200],
         original_name=Path(filename).name[:260],
         stored_name=stored,
@@ -69,19 +95,19 @@ def add_library_file(db: Session, filename: str, data: bytes, title: str = "") -
     db.add(item)
     db.commit()
     db.refresh(item)
-    enqueue_sync_file(db, path, item.original_name)
+    enqueue_sync_file(db, path, item.original_name, user_id=uid)
     return item
 
 
 def enqueue_library_file(db: Session, item: LibraryFile):
-    path = LIBRARY_DIR / item.stored_name
+    path = library_path(item)
     if not path.exists():
         raise FileNotFoundError("File is missing from the library folder.")
-    return enqueue_sync_file(db, path, item.original_name)
+    return enqueue_sync_file(db, path, item.original_name, user_id=item.user_id)
 
 
 def delete_library_file(db: Session, item: LibraryFile) -> None:
-    path = LIBRARY_DIR / item.stored_name
+    path = library_path(item)
     if path.exists():
         path.unlink()
     db.delete(item)

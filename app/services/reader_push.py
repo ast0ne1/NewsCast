@@ -214,11 +214,22 @@ def enqueue_briefing_and_library(db: Session) -> list[SyncTask]:
     if briefing_task:
         tasks.append(briefing_task)
     for item in db.query(LibraryFile).order_by(LibraryFile.created_at.desc()).all():
-        path = LIBRARY_DIR / item.stored_name
+        from app.services.library import library_path
+
+        path = library_path(item)
         if not path.exists():
             continue
         name = item.original_name or path.name
-        tasks.append(enqueue_sync_file(db, path, name, kind="crosspoint", save_path=join(dest, name)))
+        tasks.append(
+            enqueue_sync_file(
+                db,
+                path,
+                name,
+                kind="crosspoint",
+                save_path=join(dest, name),
+                user_id=item.user_id,
+            )
+        )
     return tasks
 
 
@@ -261,6 +272,7 @@ def flush_pending(db: Session) -> dict:
                     kind="push",
                     title=instance,
                     body=f"Morning paper is on the reader — {label}",
+                    user_id=getattr(task, "user_id", None),
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("upload failed for %s: %s", path.name, exc)

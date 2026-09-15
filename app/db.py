@@ -29,6 +29,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_schema()
+    from app.services.users import migrate_multi_user
+
+    migrate_multi_user()
 
 
 def _ensure_schema() -> None:

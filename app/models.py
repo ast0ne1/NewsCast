@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -12,13 +12,72 @@ class Base(DeclarativeBase):
     pass
 
 
-class Feed(Base):
-    __tablename__ = "feeds"
+class User(Base):
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    catalog_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True)
+    password: Mapped[str] = mapped_column(Text, default="")
+    role: Mapped[str] = mapped_column(String(20), default="user")
+    can_add_custom_sources: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_use_ntfy: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    login_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    login_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    ui_lang: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CatalogApproval(Base):
+    __tablename__ = "catalog_approvals"
+
+    catalog_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    approved: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SourceFetch(Base):
+    __tablename__ = "source_fetches"
+
+    url: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    body_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    etag: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_modified: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    item_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ArticleCache(Base):
+    __tablename__ = "article_cache"
+
+    canonical_url: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    excerpt: Mapped[str] = mapped_column(Text, default="")
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Feed(Base):
+    __tablename__ = "feeds"
+    __table_args__ = (
+        UniqueConstraint("user_id", "url", name="uq_feeds_user_url"),
+        UniqueConstraint("user_id", "catalog_id", name="uq_feeds_user_catalog"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
+    catalog_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     name: Mapped[str] = mapped_column(String(200))
-    url: Mapped[str] = mapped_column(String(1000), unique=True)
+    url: Mapped[str] = mapped_column(String(1000))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     type: Mapped[str] = mapped_column(String(20), default="rss")
     category: Mapped[str] = mapped_column(String(40), default="news")
@@ -41,12 +100,14 @@ class Feed(Base):
 
 class Story(Base):
     __tablename__ = "stories"
+    __table_args__ = (UniqueConstraint("user_id", "canonical_url", name="uq_stories_user_url"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     title: Mapped[str] = mapped_column(String(500))
     summary: Mapped[str] = mapped_column(Text)
     source_name: Mapped[str] = mapped_column(String(200))
-    canonical_url: Mapped[str] = mapped_column(String(1000), unique=True)
+    canonical_url: Mapped[str] = mapped_column(String(1000))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     cluster_key: Mapped[str] = mapped_column(String(200), index=True)
@@ -62,11 +123,13 @@ class Story(Base):
 
 class LibraryFile(Base):
     __tablename__ = "library_files"
+    __table_args__ = (UniqueConstraint("user_id", "stored_name", name="uq_library_user_stored"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     title: Mapped[str] = mapped_column(String(200))
     original_name: Mapped[str] = mapped_column(String(260))
-    stored_name: Mapped[str] = mapped_column(String(280), unique=True)
+    stored_name: Mapped[str] = mapped_column(String(280))
     size: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -75,6 +138,7 @@ class SyncTask(Base):
     __tablename__ = "sync_tasks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     device_id: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
@@ -101,3 +165,4 @@ class Category(Base):
     label: Mapped[str] = mapped_column(String(80))
     builtin: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=100)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

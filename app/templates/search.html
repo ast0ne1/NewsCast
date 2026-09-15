@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Search · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -16,7 +17,7 @@
       Query
       <input type="search" name="q" value="{{ query }}" autocomplete="off" placeholder="keyword or outlet" />
     </label>
-    <button class="btn btn-primary" type="submit">Search</button>
+    <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("search") }} Search</button>
   </div>
 </form>
 

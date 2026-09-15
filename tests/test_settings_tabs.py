@@ -1,4 +1,11 @@
-from app.routers.ui import SETTINGS_TAB_KEYS, normalize_settings_tab, settings_path
+from app.routers.ui import (
+    ADMIN_ONLY_SETTINGS_TABS,
+    SETTINGS_TAB_KEYS,
+    normalize_settings_tab,
+    normalize_settings_tab_for_role,
+    settings_path,
+    settings_tabs_for,
+)
 
 
 def test_settings_tab_defaults_and_aliases():
@@ -34,7 +41,35 @@ def test_settings_path_keeps_known_tabs():
         "notifications",
         "categories",
         "catalog",
+        "users",
         "backup",
         "update",
         "about",
     }
+
+
+def test_non_admin_settings_tabs_hide_household_controls():
+    keys = {key for key, _label in settings_tabs_for("user", can_use_ntfy=True)}
+    assert "llm" not in keys
+    assert "backup" not in keys
+    assert "users" not in keys
+    assert "catalog" not in keys
+    assert "schedule" not in keys
+    assert "update" not in keys
+    assert "publication" in keys
+    assert "notifications" in keys
+    assert "about" in keys
+    assert ADMIN_ONLY_SETTINGS_TABS.isdisjoint(keys)
+    assert normalize_settings_tab_for_role("llm", "user") == "device"
+    assert normalize_settings_tab_for_role("reader", "user") == "reader"
+    assert normalize_settings_tab_for_role("llm", "admin") == "llm"
+
+
+def test_notifications_tab_requires_ntfy_permission():
+    without = {key for key, _ in settings_tabs_for("user", can_use_ntfy=False)}
+    with_ntfy = {key for key, _ in settings_tabs_for("user", can_use_ntfy=True)}
+    assert "notifications" not in without
+    assert "notifications" in with_ntfy
+    assert normalize_settings_tab_for_role("notifications", "user", can_use_ntfy=False) == "device"
+    assert normalize_settings_tab_for_role("notifications", "user", can_use_ntfy=True) == "notifications"
+    assert "notifications" in {key for key, _ in settings_tabs_for("admin")}

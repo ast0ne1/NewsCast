@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ ui_lang or 'en' }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
@@ -33,7 +33,7 @@
       <header class="topbar">
         <a class="brand" href="/">{% include "_brand_mark.html" %}NewsCast</a>
         <p class="status-pill {% if ingest.running %}is-busy{% elif ingest.last_error %}is-error{% endif %}" data-ingest-pill>
-          {% if ingest.running %}Refreshing{% elif ingest.last_error %}Error{% else %}Idle{% endif %}
+          {% if ingest.running %}{{ t("Refreshing") }}{% elif ingest.last_error %}{{ t("Error") }}{% else %}{{ t("Idle") }}{% endif %}
         </p>
         <div class="theme-switch" role="group" aria-label="Colour theme">
           <button type="button" data-theme-set="light" aria-label="Light mode" title="Light">
@@ -53,7 +53,7 @@
           </button>
         </form>
         <form method="post" action="/logout" data-native>
-          <button class="icon-btn sign-out" type="submit" aria-label="Sign out" title="Sign out">
+          <button class="icon-btn sign-out" type="submit" aria-label="{{ t('Sign out') }}" title="{{ t('Sign out') }}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2"/><path d="M15 12H3m0 0 3-3m-3 3 3 3"/></svg>
           </button>
         </form>
@@ -78,49 +78,50 @@
       <nav class="nav" aria-label="Main">
         <a href="/" class="{% if active == 'briefing' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h9a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4z"/><path d="M8 4v13a3 3 0 0 0 3 3h8"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
-          <span>Briefing</span>
+          <span>{{ t("Briefing") }}</span>
         </a>
         <a href="/saved" class="{% if active == 'saved' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v17l-6-3.4L6 21z"/></svg>
-          <span>Saved</span>
+          <span>{{ t("Saved") }}</span>
         </a>
         <a href="/search" class="{% if active == 'search' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-          <span>Search</span>
+          <span>{{ t("Search") }}</span>
         </a>
         <a href="/library" class="{% if active == 'library' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M5 19h14"/></svg>
-          <span>Send</span>
+          <span>{{ t("Send") }}</span>
         </a>
         <a href="/feeds" class="{% if active == 'feeds' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h10"/></svg>
-          <span>Feeds</span>
+          <span>{{ t("Feeds") }}</span>
         </a>
         <a href="/catalog" class="{% if active == 'catalog' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
-          <span>Catalog</span>
+          <span>{{ t("Catalog") }}</span>
         </a>
         <a href="/status" class="{% if active == 'status' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4"/></svg>
-          <span>Status</span>
+          <span>{{ t("Status") }}</span>
         </a>
         <a href="/settings" class="{% if active == 'settings' %}is-active{% endif %}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15.5" cy="8" r="2"/><circle cx="8.5" cy="16" r="2"/></svg>
-          <span>Settings</span>
+          <span>{{ t("Settings") }}</span>
         </a>
       </nav>
     </div>
     <div class="sheet" hidden data-confirm-sheet>
       <div class="sheet-card card">
-        <h2 data-confirm-title>Remove this?</h2>
+        <h2 data-confirm-title>{{ t("Remove this?") }}</h2>
         <p class="hint" data-confirm-body></p>
         <div class="btn-row">
-          <button class="btn btn-primary" type="button" data-confirm-ok>Remove</button>
-          <button class="btn btn-ghost" type="button" data-confirm-cancel>Cancel</button>
+          <button class="btn btn-primary" type="button" data-confirm-ok>{{ t("Remove") }}</button>
+          <button class="btn btn-ghost" type="button" data-confirm-cancel>{{ t("Cancel") }}</button>
         </div>
       </div>
     </div>
     <div class="toast" hidden data-toast role="status" aria-live="polite"></div>
+    <script>window.NEWSCAST_I18N = {{ i18n_js|tojson }};</script>
     <script src="/static/js/app.js?v={{ app_version }}-{{ asset_rev }}" defer></script>
   </body>
 </html>

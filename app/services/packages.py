@@ -138,7 +138,10 @@ def import_package(db: Session, payload) -> dict:
     package = validate_package(payload)
     save_package(package)
     ensure_category(db, package["category"]["key"], package["category"]["label"])
-    existing = db.query(Feed).all()
+    from app.services.users import ensure_admin_user
+
+    admin = ensure_admin_user(db)
+    existing = db.query(Feed).filter(Feed.user_id == admin.id).all()
     used_urls = {feed.url for feed in existing}
     created = 0
     for feed in package["feeds"]:
@@ -149,6 +152,7 @@ def import_package(db: Session, payload) -> dict:
             continue
         db.add(
             Feed(
+                user_id=admin.id,
                 catalog_id=catalog_id,
                 name=feed["name"],
                 url=feed["url"],

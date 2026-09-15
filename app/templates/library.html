@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Send · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -16,15 +17,15 @@
 <div class="btn-row send-push">
   <form method="post" action="/reader/poll" data-busy-label="Checking…">
     <input type="hidden" name="next" value="/library" />
-    <button class="btn btn-secondary" type="submit">Check reader</button>
+    <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("wifi") }} <span class="btn-label-full">Check reader</span><span class="btn-label-short">Check</span></button>
   </form>
   <form method="post" action="/reader/push">
     <input type="hidden" name="next" value="/library" />
-    <button class="btn btn-secondary" type="submit">Push now</button>
+    <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("upload") }} <span class="btn-label-full">Push now</span><span class="btn-label-short">Push</span></button>
   </form>
-    <form method="post" action="/reader/queue">
+  <form method="post" action="/reader/queue">
     <input type="hidden" name="next" value="/library" />
-    <button class="btn btn-secondary" type="submit">Queue for later</button>
+    <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("queue") }} <span class="btn-label-full">Queue for later</span><span class="btn-label-short">Queue</span></button>
   </form>
 </div>
 {% if reader.queue %}
@@ -51,7 +52,7 @@
       File
       <input type="file" name="file" accept=".epub,.pdf,application/epub+zip,application/pdf" required />
     </label>
-    <button class="btn btn-primary" type="submit">Add file</button>
+    <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("plus-file") }} Add file</button>
   </div>
 </form>
 
@@ -60,17 +61,17 @@
   <h2>Your files</h2>
   <ul class="feed-list">
     {% for item in library_files %}
-    <li class="card feed-row">
+    <li class="card feed-row library-row">
       <div class="feed-copy">
         <h2>{{ item.title }}</h2>
         <p class="meta">{{ item.original_name }} · {{ item.size }}{% if item.created_at %} · {{ item.created_at }} UTC{% endif %}</p>
       </div>
-      <form method="post" action="/library/{{ item.id }}/push">
-        <button class="btn btn-secondary" type="submit">Push again</button>
+      <form method="post" action="/library/{{ item.id }}/push" class="library-push">
+        <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("upload") }} <span class="btn-label-full">Push again</span><span class="btn-label-short">Push</span></button>
       </form>
       <form method="post" action="/library/{{ item.id }}/delete" data-confirm="Remove this file from Send?" data-confirm-detail="It leaves this list and will not be offered on the next push." data-confirm-ok="Remove">
         <button class="icon-btn" type="submit" aria-label="Delete {{ item.title }}" title="Remove file">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+          {{ icon("trash") }}
         </button>
       </form>
     </li>

@@ -1,14 +1,19 @@
+{% from "_icons.html" import icon %}
 {% if reader.queue %}
 <ul class="feed-list queue-list">
   {% for item in reader.queue %}
-  <li class="card feed-row">
+  <li class="card feed-row queue-row">
     <div class="feed-copy">
       <h2>{{ item.label }}</h2>
       <p class="meta">{{ item.name }} · {{ item.size_label }}{% if item.created_label %} · {{ item.created_label }}{% endif %}</p>
     </div>
-    <form method="post" action="/reader/queue/{{ item.task_id }}/cancel">
+    <form method="post" action="/reader/queue/{{ item.task_id }}/cancel" class="queue-cancel">
       <input type="hidden" name="next" value="{{ queue_next|default('/status') }}" />
-      <button class="btn btn-secondary" type="submit">Remove from transfer</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit" title="Remove from transfer" aria-label="Remove {{ item.label }} from transfer">
+        {{ icon("trash") }}
+        <span class="queue-cancel-full">Remove from transfer</span>
+        <span class="queue-cancel-short">Remove</span>
+      </button>
     </form>
   </li>
   {% endfor %}

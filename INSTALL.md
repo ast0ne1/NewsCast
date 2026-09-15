@@ -92,6 +92,25 @@ hostname -I
 
 Use the first number it prints, for example `http://192.168.1.20:8080`.
 
+### Optional LAN HTTPS
+
+HTTPS is **off by default**. Turn it on under **Settings → General** only after a TLS reverse proxy (for example Caddy) is in front of NewsCast.
+
+1. Copy `deploy/Caddyfile` and adjust the hostname/port if needed.
+2. Point Caddy at uvicorn on `127.0.0.1` (set `HOST=127.0.0.1` for NewsCast so LAN clients cannot skip TLS).
+3. Enable **Require HTTPS** in General, then trust Caddy’s local CA on phones and PCs the first time you connect.
+
+Until HTTPS is on, passwords travel in cleartext on the Wi‑Fi. Password hashing at rest is always on.
+
+### Household accounts (optional)
+
+On **Settings → Users**, the admin can add other people. Each person gets their own feeds, daily paper, Send files, and OPDS catalog.
+
+- Approve which Catalog sources they may Add under **Settings → Catalog approvals**.
+- Turn on custom feed URLs and/or ntfy alerts on each person’s card if you want those.
+- On **Status**, each signed-in user should copy **their** catalog URL (`/opds/u/<username>`) into CrossPoint or KOReader — not the shared `/opds` admin catalog.
+- A one-time **login QR** on the Users card signs someone in without typing the password on a phone.
+
 ---
 
 ## Connect from your Windows PC
@@ -162,9 +181,10 @@ Then in SSH, the install folder is still `~/Desktop/NewsCast-pi`.
 
 ## After install
 
-- **Feeds** and **Catalog** add news sources.
+- **Feeds** and **Catalog** add news sources. Non-admins only see Catalog entries the admin approved.
 - **Refresh** in the header pulls stories.
-- **Settings** is split into tabs: Device (hostname and instance name), Schedule, Filters, LLM (OpenAI or Ollama), Reader (including CrossPoint push), Categories, Backup/Restore, Update (GitHub Releases), and About.
+- **Settings** is split into tabs: General (hostname, instance name, HTTPS, interface language), Publication, Schedule, Filters, Translation, LLM (OpenAI or Ollama), Reader (CrossPoint or Kobo push), Notifications (ntfy), Categories, Catalog approvals, Users, Backup/Restore, Update (GitHub Releases), and About. Non-admins only see the tabs that apply to them.
+- **Status** shows your personal OPDS URL (`/opds/u/<username>`) for the reader catalog.
 - **Search** finds stories, favourites, and Saved long-reads. Briefing has Today and Yesterday. Feeds can mute a source for 24 hours.
 - NewsCast starts by itself when the Pi is turned on.
 

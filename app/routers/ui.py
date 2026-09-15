@@ -9,12 +9,28 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from app import __asset_rev__, __author__, __version__
-from app.auth import attach_session, clear_session, credentials_match, is_signed_in, require_admin, safe_next
+from app import __asset_rev__, __github__, __version__
+from app.auth import (
+    attach_session,
+    clear_login_failures,
+    clear_session,
+    credentials_match,
+    effective_user_id,
+    is_signed_in,
+    login_rate_limited,
+    record_login_failure,
+    require_admin,
+    request_is_https,
+    resolve_login_identity,
+    safe_next,
+    session_from_request,
+)
 from app.config import ROOT_DIR, env
 from app.db import get_db
-from app.models import Feed, LibraryFile, Story, SyncTask, utcnow
-from app.services import backup, favicon, hostname, library, ntfy, paper_naming, qrcode, reader_push, settings, translate, update
+from app.models import Feed, LibraryFile, Story, SyncTask, User, utcnow
+from app.services import backup, favicon, hostname, i18n, library, ntfy, paper_naming, passwords, qrcode, reader_push, settings, translate, update
+from app.services import users as users_service
+from app.services import user_settings as user_settings_service
 from app.services.briefing import (
     briefing_path,
     briefing_publish_at,
@@ -33,6 +49,7 @@ from app.services.delivery import delivery_status
 from app.services.schedule import feed_is_muted, normalize_optional_clock
 from app.services import saved as saved_articles
 from app.services.catalog import catalog_with_status, grouped_catalog
+from app.services import catalog as catalog_service
 from app.services.categories import category_labels, list_categories
 from app.services.ingest import snapshot, start_ingest
 from app.services import categories as category_service
@@ -54,11 +71,19 @@ SETTINGS_TABS = (
     ("notifications", "Notifications"),
     ("categories", "Categories"),
     ("catalog", "Catalog"),
+    ("users", "Users"),
     ("backup", "Backup/Restore"),
     ("update", "Update"),
     ("about", "About"),
 )
 SETTINGS_TAB_KEYS = {key for key, _label in SETTINGS_TABS}
+# Instance / household controls — non-admins never see these tabs.
+ADMIN_ONLY_SETTINGS_TABS = frozenset(
+    {"schedule", "llm", "catalog", "users", "backup", "update"}
+)
+USER_SETTINGS_TABS = tuple(
+    (key, label) for key, label in SETTINGS_TABS if key not in ADMIN_ONLY_SETTINGS_TABS
+)
 SETTINGS_TAB_ALIASES = {"access": "device"}
 SETTINGS_SAVE_TABS = {
     "device",
@@ -72,7 +97,7 @@ SETTINGS_SAVE_TABS = {
     "update",
 }
 SETTINGS_LEDES = {
-    "device": "Colour palette, admin login, hostname, and the Home or Work name for this copy.",
+    "device": "Colour palette, admin login, hostname, HTTPS, and the Home or Work name for this copy.",
     "publication": "How the paper is named, how many stories it keeps, category mix, and which topics get their own OPDS papers.",
     "schedule": "How often sources refresh, and when today’s newspaper freezes for the reader.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
@@ -82,6 +107,7 @@ SETTINGS_LEDES = {
     "notifications": "Phone alerts via ntfy when the paper is published or reaches the reader.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "catalog": "Import a country or industry package, or export one of your categories as JSON to share.",
+    "users": "Household accounts. Edit each person’s access, reset passwords, or show a one-time login QR.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
     "update": "Check GitHub Releases and install a newer zip.",
     "about": "What NewsCast is, who wrote it, and the version running here.",
@@ -93,17 +119,81 @@ def normalize_settings_tab(value: str | None) -> str:
     return key if key in SETTINGS_TAB_KEYS else "device"
 
 
+def settings_tabs_for(
+    role: str | None,
+    *,
+    can_use_ntfy: bool = False,
+) -> tuple[tuple[str, str], ...]:
+    if role == "admin":
+        return SETTINGS_TABS
+    tabs = USER_SETTINGS_TABS
+    if not can_use_ntfy:
+        tabs = tuple((key, label) for key, label in tabs if key != "notifications")
+    return tabs
+
+
+def normalize_settings_tab_for_role(
+    value: str | None,
+    role: str | None,
+    *,
+    can_use_ntfy: bool = False,
+) -> str:
+    key = normalize_settings_tab(value)
+    allowed = {tab for tab, _ in settings_tabs_for(role, can_use_ntfy=can_use_ntfy)}
+    return key if key in allowed else "device"
+
+
+def _session_can_use_ntfy(db: Session, request: Request) -> bool:
+    session = session_from_request(request)
+    if not session:
+        return False
+    if session.role == "admin":
+        return True
+    user = db.get(User, session.user_id) if session.user_id else None
+    return users_service.user_may_use_ntfy(user)
+
+
 def settings_path(tab: str | None = "device") -> str:
     return f"/settings?tab={normalize_settings_tab(tab)}"
 
 
-def _story_categories(db: Session) -> dict[str, str]:
-    return {feed.name: feed.category for feed in db.query(Feed).all()}
+def _current_user_id(request: Request) -> int:
+    return effective_user_id(session_from_request(request))
+
+
+def _resolve_page_lang(request: Request, db: Session) -> str:
+    session = session_from_request(request)
+    user_id = session.user_id if session else None
+    return settings.resolve_ui_lang(db, user_id=user_id)
+
+
+def render(request: Request, name: str, context: dict, *, status_code: int = 200, db: Session | None = None):
+    """TemplateResponse with ui_lang, t/_ helpers, and JS i18n bundle."""
+    ctx = dict(context)
+    lang = ctx.get("ui_lang")
+    if not lang:
+        lang = _resolve_page_lang(request, db) if db is not None else settings.DEFAULT_UI_LANG
+    t_fn = i18n.make_t(lang)
+    ctx["ui_lang"] = lang
+    ctx["t"] = t_fn
+    ctx["_"] = t_fn
+    ctx.setdefault("i18n_js", i18n.js_bundle(lang))
+    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+
+
+def _story_categories(db: Session, user_id: int | None = None) -> dict[str, str]:
+    query = db.query(Feed)
+    if user_id is not None:
+        query = query.filter(Feed.user_id == user_id)
+    return {feed.name: feed.category for feed in query.all()}
 
 
 def _base_context(request: Request, db: Session, active: str) -> dict:
     ingest = snapshot()
     llm = settings.llm_config(db)
+    uid = _current_user_id(request)
+    session = session_from_request(request)
+    lang = settings.resolve_ui_lang(db, user_id=session.user_id if session else None)
     return {
         "request": request,
         "active": active,
@@ -114,9 +204,12 @@ def _base_context(request: Request, db: Session, active: str) -> dict:
         "using_factory_admin": settings.using_factory_admin(db),
         "app_version": __version__,
         "asset_rev": __asset_rev__,
-        "app_author": __author__,
+        "app_github": __github__,
         "homescreen_name": hostname.homescreen_name(db),
-        "favicons": favicon.map_for_feeds(db.query(Feed).all()),
+        "favicons": favicon.map_for_feeds(db.query(Feed).filter(Feed.user_id == uid).all()),
+        "session_role": session.role if session else "user",
+        "session_username": session.username if session else "",
+        "ui_lang": lang,
     }
 
 
@@ -125,7 +218,7 @@ def login_page(request: Request, db: Annotated[Session, Depends(get_db)], next: 
     nxt = safe_next(next)
     if is_signed_in(request):
         return RedirectResponse(nxt, status_code=303)
-    return templates.TemplateResponse(
+    return render(
         request,
         "login.html",
         {
@@ -138,6 +231,7 @@ def login_page(request: Request, db: Annotated[Session, Depends(get_db)], next: 
             "asset_rev": __asset_rev__,
             "homescreen_name": hostname.homescreen_name(db),
         },
+        db=db,
     )
 
 
@@ -175,24 +269,84 @@ def login_submit(
     next: Annotated[str, Form()] = "/",
 ):
     nxt = safe_next(next)
-    if credentials_match(db, username.strip(), password):
+    name = username.strip()
+    if login_rate_limited(request, name):
+        return render(
+            request,
+            "login.html",
+            {
+                "request": request,
+                "next": nxt,
+                "error": "Too many failed attempts. Wait a few minutes and try again.",
+                "username": name,
+                "using_factory_admin": settings.using_factory_admin(db),
+                "app_version": __version__,
+                "asset_rev": __asset_rev__,
+                "homescreen_name": hostname.homescreen_name(db),
+            },
+            status_code=429,
+            db=db,
+        )
+    if credentials_match(db, name, password):
+        clear_login_failures(request, name)
+        identity = resolve_login_identity(db, name)
         response = RedirectResponse(nxt, status_code=303)
-        attach_session(response, username.strip())
+        attach_session(
+            response,
+            identity.username,
+            user_id=identity.user_id,
+            role=identity.role,
+            secure=request_is_https(request, db),
+        )
         return response
-    return templates.TemplateResponse(
+    record_login_failure(request, name)
+    return render(
         request,
         "login.html",
         {
             "request": request,
             "next": nxt,
             "error": "That username or password is not right.",
-            "username": username.strip(),
+            "username": name,
             "using_factory_admin": settings.using_factory_admin(db),
             "app_version": __version__,
             "asset_rev": __asset_rev__,
             "homescreen_name": hostname.homescreen_name(db),
         },
+        db=db,
     )
+
+
+@public.get("/login/token/{token}")
+def login_via_token(token: str, request: Request, db: Annotated[Session, Depends(get_db)], next: str = "/"):
+    nxt = safe_next(next)
+    user = users_service.consume_login_token(db, token)
+    if user is None:
+        return render(
+            request,
+            "login.html",
+            {
+                "request": request,
+                "next": nxt,
+                "error": "That login link is invalid or has expired.",
+                "username": "",
+                "using_factory_admin": settings.using_factory_admin(db),
+                "app_version": __version__,
+                "asset_rev": __asset_rev__,
+                "homescreen_name": hostname.homescreen_name(db),
+            },
+            status_code=401,
+            db=db,
+        )
+    response = RedirectResponse(nxt, status_code=303)
+    attach_session(
+        response,
+        user.username,
+        user_id=user.id,
+        role=user.role,
+        secure=request_is_https(request, db),
+    )
+    return response
 
 
 @public.api_route("/logout", methods=["GET", "POST"])
@@ -204,10 +358,11 @@ def logout_submit():
 
 @router.get("/")
 def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)], day: str = "today"):
+    uid = _current_user_id(request)
     briefing_day = normalize_briefing_day(day)
-    stories = [story for story in current_stories(db, day=briefing_day) if not story.saved]
-    categories = _story_categories(db)
-    icons = favicon.map_for_feeds(db.query(Feed).all())
+    stories = [story for story in current_stories(db, day=briefing_day, user_id=uid) if not story.saved]
+    categories = _story_categories(db, uid)
+    icons = favicon.map_for_feeds(db.query(Feed).filter(Feed.user_id == uid).all())
     icons.update(favicon.map_for_stories(stories))
     for story in stories:
         story.category = categories.get(story.source_name, "news")
@@ -219,7 +374,7 @@ def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)], day
             favicon.host_key(story.canonical_url),
             favicon.host_key(favicon.homepage_url(story.canonical_url)),
         )
-    return templates.TemplateResponse(
+    return render(
         request,
         "briefing.html",
         {
@@ -229,6 +384,7 @@ def briefing_page(request: Request, db: Annotated[Session, Depends(get_db)], day
             "retention_days": env.story_retention_days,
             "briefing_day": briefing_day,
         },
+        db=db,
     )
 
 
@@ -284,10 +440,11 @@ def save_story_longread(
 
 @router.get("/search")
 def search_page(request: Request, db: Annotated[Session, Depends(get_db)], q: str = ""):
+    uid = _current_user_id(request)
     query = (q or "").strip()
-    stories = search_stories(db, query) if query else []
-    categories = _story_categories(db)
-    icons = favicon.map_for_feeds(db.query(Feed).all())
+    stories = search_stories(db, query, user_id=uid) if query else []
+    categories = _story_categories(db, uid)
+    icons = favicon.map_for_feeds(db.query(Feed).filter(Feed.user_id == uid).all())
     icons.update(favicon.map_for_stories(stories))
     for story in stories:
         story.category = categories.get(story.source_name, "news")
@@ -299,7 +456,7 @@ def search_page(request: Request, db: Annotated[Session, Depends(get_db)], q: st
             favicon.host_key(story.canonical_url),
             favicon.host_key(favicon.homepage_url(story.canonical_url)),
         )
-    return templates.TemplateResponse(
+    return render(
         request,
         "search.html",
         {
@@ -307,13 +464,15 @@ def search_page(request: Request, db: Annotated[Session, Depends(get_db)], q: st
             "query": query,
             "stories": stories,
         },
+        db=db,
     )
 
 
 @router.get("/saved")
 def saved_page(request: Request, db: Annotated[Session, Depends(get_db)]):
-    items = current_saved_stories(db)
-    icons = favicon.map_for_feeds(db.query(Feed).all())
+    uid = _current_user_id(request)
+    items = current_saved_stories(db, user_id=uid)
+    icons = favicon.map_for_feeds(db.query(Feed).filter(Feed.user_id == uid).all())
     icons.update(favicon.map_for_stories(items))
     for item in items:
         item.favicon = favicon.lookup(
@@ -324,7 +483,7 @@ def saved_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             favicon.host_key(favicon.homepage_url(item.canonical_url)),
         )
         item.origin_label = saved_articles.saved_origin_label(getattr(item, "saved_origin", None))
-    return templates.TemplateResponse(
+    return render(
         request,
         "saved.html",
         {
@@ -332,6 +491,7 @@ def saved_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "items": items,
             "keep_options": saved_articles.KEEP_OPTIONS,
         },
+        db=db,
     )
 
 
@@ -368,14 +528,24 @@ def delete_saved_article(story_id: int, request: Request, db: Annotated[Session,
 def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     from app.services.translate import FEED_PROVIDER_CHOICES, feed_translate_mode
 
-    feeds = db.query(Feed).order_by(Feed.enabled.desc(), Feed.name.asc()).all()
+    uid = _current_user_id(request)
+    session = session_from_request(request)
+    is_admin = bool(session and session.role == "admin")
+    user_row = db.get(User, uid) if uid else None
+    can_add_custom = is_admin or bool(user_row and user_row.can_add_custom_sources)
+    feeds = (
+        db.query(Feed)
+        .filter(Feed.user_id == uid)
+        .order_by(Feed.enabled.desc(), Feed.name.asc())
+        .all()
+    )
     now = utcnow()
     for feed in feeds:
         feed.is_muted = feed_is_muted(feed, now)
         feed.health = feed_health(feed, now)
         feed.health_label = feed_health_label(feed, now)
         feed.translate_mode = feed_translate_mode(feed)
-    return templates.TemplateResponse(
+    return render(
         request,
         "feeds.html",
         {
@@ -389,7 +559,9 @@ def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             ),
             "translate_modes": FEED_PROVIDER_CHOICES,
             "global_translate_provider": settings.translate_provider(db),
+            "can_add_custom_sources": can_add_custom,
         },
+        db=db,
     )
 
 
@@ -397,26 +569,43 @@ def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
 def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
     from app.services.translate import FEED_PROVIDER_CHOICES
 
-    return templates.TemplateResponse(
+    uid = _current_user_id(request)
+    session = session_from_request(request)
+    is_admin = bool(session and session.role == "admin")
+    user_row = db.get(User, uid) if uid else None
+    can_add_custom = is_admin or bool(user_row and user_row.can_add_custom_sources)
+    return render(
         request,
         "catalog.html",
         {
             **_base_context(request, db, "catalog"),
-            "catalog": grouped_catalog(db),
-            "custom_feeds": db.query(Feed).filter(Feed.catalog_id.is_(None)).order_by(Feed.name.asc()).all(),
+            "catalog": grouped_catalog(db, user_id=uid, approved_only=not is_admin),
+            "custom_feeds": db.query(Feed)
+            .filter(Feed.user_id == uid, Feed.catalog_id.is_(None))
+            .order_by(Feed.name.asc())
+            .all(),
             "category_labels": category_labels(db),
             "translate_modes": FEED_PROVIDER_CHOICES,
+            "can_add_custom_sources": can_add_custom,
+            "is_admin": is_admin,
         },
+        db=db,
     )
 
 
 @router.get("/status")
 def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
-    story_count = db.query(Story).count()
+    uid = _current_user_id(request)
+    session = session_from_request(request)
+    username = (session.username if session else "") or settings.get_value(db, "admin_username") or "admin"
+    story_count = db.query(Story).filter(Story.user_id == uid).count()
     share_url = hostname.get_share_url(db)
     reader = reader_push.snapshot(db, probe=False)
     delivery = delivery_status(db)
-    return templates.TemplateResponse(
+    public_base = hostname.get_public_base_url(db)
+    opds_path = f"/opds/u/{username}"
+    x3_path = f"/api/x3/u/{username}"
+    return render(
         request,
         "status.html",
         {
@@ -424,114 +613,145 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "story_count": story_count,
             "reader": reader,
             "delivery": delivery,
-            "public_base_url": hostname.get_public_base_url(db),
+            "public_base_url": public_base,
+            "opds_url": f"{public_base}{opds_path}",
+            "opds_path": opds_path,
+            "x3_news_url": f"{public_base}{x3_path}/news",
+            "x3_path": x3_path,
             "share_url": share_url,
-            "lan_url": hostname.get_lan_url(),
+            "lan_url": hostname.get_lan_url(db),
             "qr_svg": qrcode.svg_for(share_url),
             "request_base_url": str(request.base_url).rstrip("/"),
             "instance_name": settings.get_value(db, "instance_name"),
             "x3_catalog_login": settings.catalog_login_enabled(db),
             "x3_catalog_username": settings.catalog_username(db),
-            "x3_token_set": bool(settings.get_value(db, "x3_sync_token")),
+            "x3_token_set": bool(
+                user_settings_service.get_value(db, uid, "x3_sync_token")
+                or settings.get_value(db, "x3_sync_token")
+            ),
             "update_check": update.last_check(db),
-            "paper": paper_status(db),
+            "paper": paper_status(db, user_id=uid),
             "reader_device": settings.reader_device(db),
             "health": status_health(db),
+            "https_enabled": settings.https_enabled(db),
         },
+        db=db,
     )
 
 
 @router.get("/library")
 def library_page(request: Request, db: Annotated[Session, Depends(get_db)]):
-    return templates.TemplateResponse(
+    uid = _current_user_id(request)
+    return render(
         request,
         "library.html",
         {
             **_base_context(request, db, "library"),
-            "library_files": _library_items(db),
+            "library_files": _library_items(db, uid),
             "reader": reader_push.snapshot(db, probe=False),
         },
+        db=db,
     )
+
+
+def _settings_page_context(request: Request, db: Session, tab: str = "device") -> dict:
+    session = session_from_request(request)
+    role = session.role if session else "user"
+    can_ntfy = _session_can_use_ntfy(db, request)
+    settings_tab = normalize_settings_tab_for_role(tab, role, can_use_ntfy=can_ntfy)
+    uid = _current_user_id(request)
+    ntfy.migrate_user_ntfy_from_instance(db, uid)
+    user_server = user_settings_service.get_value(db, uid, "ntfy_server").strip()
+    household_server = settings.get_value(db, "ntfy_server") or "https://ntfy.sh"
+    return {
+        **_base_context(request, db, "settings"),
+        "settings_tab": settings_tab,
+        "settings_tabs": settings_tabs_for(role, can_use_ntfy=can_ntfy),
+        "is_admin": role == "admin",
+        "can_use_ntfy": can_ntfy,
+        "settings_save_tabs": SETTINGS_SAVE_TABS,
+        "settings_lede": SETTINGS_LEDES[settings_tab],
+        "settings_ledes": SETTINGS_LEDES,
+        "admin_username": settings.get_value(db, "admin_username"),
+        "openai_key": settings.secret_hint(db, "openai_api_key"),
+        "openai_model": settings.get_value(db, "openai_model"),
+        "openai_models": settings.OPENAI_MODELS,
+        "openai_model_known": settings.get_value(db, "openai_model") in settings.OPENAI_MODEL_IDS,
+        "llm_provider": settings.normalize_provider(settings.get_value(db, "llm_provider")),
+        "ollama_base_url": settings.normalize_ollama_root(settings.get_value(db, "ollama_base_url")),
+        "ollama_model": settings.get_value(db, "ollama_model"),
+        "instance_name": settings.get_value(db, "instance_name"),
+        "x3_token": user_settings_service.secret_hint(db, uid, "x3_sync_token"),
+        "x3_catalog_login": settings.catalog_login_enabled(db),
+        "x3_catalog_username": settings.catalog_username(db),
+        "x3_device_id": settings.get_value(db, "x3_device_id"),
+        "device_hostname": hostname.normalize_hostname(settings.get_value(db, "device_hostname")),
+        "app_port": env.port,
+        "refresh_intervals": settings.REFRESH_INTERVALS,
+        "global_interval": settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes),
+        "ingest_active_start": settings.get_value(db, "ingest_active_start"),
+        "ingest_active_end": settings.get_value(db, "ingest_active_end"),
+        "briefing_limits": settings.BRIEFING_LIMITS,
+        "briefing_limit": settings.briefing_limit(db),
+        "importance_min_choices": settings.IMPORTANCE_MIN_CHOICES,
+        "briefing_min_importance": settings.briefing_min_importance(db),
+        "briefing_category_mix": settings.briefing_category_mix_enabled(db),
+        "briefing_category_opds_keys": settings.briefing_category_opds_keys(db),
+        "briefing_category_shares": settings.briefing_category_shares(db),
+        "briefing_publish_at": briefing_publish_at(db),
+        "github_repo": update.repo_from_db(db),
+        "update_check": update.last_check(db),
+        "categories": list_categories(db),
+        "export_categories": list_categories(db),
+        "latest_backup": backup.latest_backup(),
+        "keyword_include": settings.get_value(db, "keyword_include"),
+        "keyword_exclude": settings.get_value(db, "keyword_exclude"),
+        "translate_providers": settings.TRANSLATE_PROVIDERS,
+        "translate_provider": settings.translate_provider(db),
+        "translate_target_languages": translate.TARGET_LANGUAGES,
+        "translate_target_lang": settings.translate_target_lang(db),
+        "reader_device": settings.reader_device(db),
+        "reader_devices": settings.READER_DEVICES,
+        "reader_host": settings.get_value(db, "reader_host"),
+        "reader_upload_path": settings.get_value(db, "reader_upload_path"),
+        "reader_push_when_online": settings.reader_push_enabled(db),
+        "reader_ssh_port": settings.reader_ssh_port(db),
+        "reader_ssh_user": settings.reader_ssh_user(db),
+        "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
+        "reader_title_pattern": paper_naming.reader_title_pattern(db),
+        "reader_category_title_pattern": paper_naming.reader_category_title_pattern(db),
+        "reader_date_format": paper_naming.reader_date_format(db),
+        "reader_date_formats": paper_naming.DATE_FORMATS,
+        "reader_title_tokens": paper_naming.TITLE_TOKENS,
+        "reader_category_title_tokens": paper_naming.CATEGORY_TITLE_TOKENS,
+        "reader_date_previews": paper_naming.date_format_previews(date.today()),
+        "reader_paper_label": settings.get_value(db, "reader_paper_label"),
+        "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
+        "reader_category_title_preview": paper_naming.paper_category_display_title(db, date.today(), "Tech"),
+        "delivery": delivery_status(db),
+        "ntfy_enabled": user_settings_service.flag_enabled(db, uid, "ntfy_enabled"),
+        "ntfy_server": user_server or household_server,
+        "ntfy_household_server": household_server,
+        "ntfy_topic": user_settings_service.get_with_fallback(db, uid, "ntfy_topic"),
+        "ntfy_token": user_settings_service.secret_hint(db, uid, "ntfy_token"),
+        "ntfy_notify_on_publish": user_settings_service.flag_enabled(db, uid, "ntfy_notify_on_publish"),
+        "ntfy_notify_on_push": user_settings_service.flag_enabled(db, uid, "ntfy_notify_on_push"),
+        "https_enabled": settings.https_enabled(db),
+        "ui_lang": settings.resolve_ui_lang(db, user_id=uid),
+        "ui_lang_choices": settings.UI_LANG_CHOICES,
+        "household_users": users_service.list_users(db),
+        "login_qr_user": None,
+        "login_qr_svg": None,
+        "login_qr_url": None,
+        "users_notice": None,
+        "approved_catalog_ids": catalog_service.approved_catalog_ids(db),
+        "catalog_for_approval": catalog_with_status(db, user_id=uid, approved_only=False),
+    }
 
 
 @router.get("/settings")
 def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab: str = "device"):
-    settings_tab = normalize_settings_tab(tab)
-    return templates.TemplateResponse(
-        request,
-        "settings.html",
-        {
-            **_base_context(request, db, "settings"),
-            "settings_tab": settings_tab,
-            "settings_tabs": SETTINGS_TABS,
-            "settings_save_tabs": SETTINGS_SAVE_TABS,
-            "settings_lede": SETTINGS_LEDES[settings_tab],
-            "settings_ledes": SETTINGS_LEDES,
-            "admin_username": settings.get_value(db, "admin_username"),
-            "openai_key": settings.secret_hint(db, "openai_api_key"),
-            "openai_model": settings.get_value(db, "openai_model"),
-            "openai_models": settings.OPENAI_MODELS,
-            "openai_model_known": settings.get_value(db, "openai_model") in settings.OPENAI_MODEL_IDS,
-            "llm_provider": settings.normalize_provider(settings.get_value(db, "llm_provider")),
-            "ollama_base_url": settings.normalize_ollama_root(settings.get_value(db, "ollama_base_url")),
-            "ollama_model": settings.get_value(db, "ollama_model"),
-            "instance_name": settings.get_value(db, "instance_name"),
-            "x3_token": settings.secret_hint(db, "x3_sync_token"),
-            "x3_catalog_login": settings.catalog_login_enabled(db),
-            "x3_catalog_username": settings.catalog_username(db),
-            "x3_device_id": settings.get_value(db, "x3_device_id"),
-            "device_hostname": hostname.normalize_hostname(settings.get_value(db, "device_hostname")),
-            "app_port": env.port,
-            "refresh_intervals": settings.REFRESH_INTERVALS,
-            "global_interval": settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes),
-            "ingest_active_start": settings.get_value(db, "ingest_active_start"),
-            "ingest_active_end": settings.get_value(db, "ingest_active_end"),
-            "briefing_limits": settings.BRIEFING_LIMITS,
-            "briefing_limit": settings.briefing_limit(db),
-            "importance_min_choices": settings.IMPORTANCE_MIN_CHOICES,
-            "briefing_min_importance": settings.briefing_min_importance(db),
-            "briefing_category_mix": settings.briefing_category_mix_enabled(db),
-            "briefing_category_opds_keys": settings.briefing_category_opds_keys(db),
-            "briefing_category_shares": settings.briefing_category_shares(db),
-            "briefing_publish_at": briefing_publish_at(db),
-            "github_repo": update.repo_from_db(db),
-            "update_check": update.last_check(db),
-            "categories": list_categories(db),
-            "export_categories": list_categories(db),
-            "latest_backup": backup.latest_backup(),
-            "keyword_include": settings.get_value(db, "keyword_include"),
-            "keyword_exclude": settings.get_value(db, "keyword_exclude"),
-            "translate_providers": settings.TRANSLATE_PROVIDERS,
-            "translate_provider": settings.translate_provider(db),
-            "translate_target_languages": translate.TARGET_LANGUAGES,
-            "translate_target_lang": settings.translate_target_lang(db),
-            "reader_device": settings.reader_device(db),
-            "reader_devices": settings.READER_DEVICES,
-            "reader_host": settings.get_value(db, "reader_host"),
-            "reader_upload_path": settings.get_value(db, "reader_upload_path"),
-            "reader_push_when_online": settings.reader_push_enabled(db),
-            "reader_ssh_port": settings.reader_ssh_port(db),
-            "reader_ssh_user": settings.reader_ssh_user(db),
-            "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
-            "reader_title_pattern": paper_naming.reader_title_pattern(db),
-            "reader_category_title_pattern": paper_naming.reader_category_title_pattern(db),
-            "reader_date_format": paper_naming.reader_date_format(db),
-            "reader_date_formats": paper_naming.DATE_FORMATS,
-            "reader_title_tokens": paper_naming.TITLE_TOKENS,
-            "reader_category_title_tokens": paper_naming.CATEGORY_TITLE_TOKENS,
-            "reader_date_previews": paper_naming.date_format_previews(date.today()),
-            "reader_paper_label": settings.get_value(db, "reader_paper_label"),
-            "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
-            "reader_category_title_preview": paper_naming.paper_category_display_title(db, date.today(), "Tech"),
-            "delivery": delivery_status(db),
-            "ntfy_enabled": settings.flag_enabled(db, "ntfy_enabled"),
-            "ntfy_server": settings.get_value(db, "ntfy_server") or "https://ntfy.sh",
-            "ntfy_topic": settings.get_value(db, "ntfy_topic"),
-            "ntfy_token": settings.secret_hint(db, "ntfy_token"),
-            "ntfy_notify_on_publish": settings.flag_enabled(db, "ntfy_notify_on_publish"),
-            "ntfy_notify_on_push": settings.flag_enabled(db, "ntfy_notify_on_push"),
-        },
-    )
+    return render(request, "settings.html", _settings_page_context(request, db, tab), db=db)
 
 
 @router.post("/library")
@@ -543,7 +763,7 @@ def upload_library_file(
 ):
     data = file.file.read(library.MAX_UPLOAD_BYTES + 1)
     try:
-        library.add_library_file(db, file.filename or "document", data, title)
+        library.add_library_file(db, file.filename or "document", data, title, user_id=_current_user_id(request))
     except ValueError as exc:
         return _form_error(request, str(exc), "/library")
     if _wants_json(request):
@@ -631,7 +851,7 @@ def publish_reader_paper(request: Request, db: Annotated[Session, Depends(get_db
     nxt = safe_next(next)
     if nxt not in {"/status", "/library"}:
         nxt = "/status"
-    publish_daily_briefing(db, overwrite=True)
+    publish_daily_briefing(db, overwrite=True, user_id=_current_user_id(request))
     if settings.reader_push_enabled(db):
         reader_push.enqueue_frozen_briefing(db)
     message = "Published today's paper."
@@ -702,10 +922,20 @@ def create_feed_form(
     from app.services.translate import parse_feed_translate_mode
 
     do_translate, translate_provider = parse_feed_translate_mode(translate)
-    existing = db.query(Feed).filter(Feed.url == url.strip()).one_or_none()
+    uid = _current_user_id(request)
+    session = session_from_request(request)
+    is_admin = bool(session and session.role == "admin")
+    user_row = db.get(User, uid) if uid else None
+    if not is_admin and not (user_row and user_row.can_add_custom_sources):
+        msg = "Custom sources are not enabled for your account."
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "message": msg}, status_code=403)
+        return _form_error(request, msg, nxt, 403)
+    existing = db.query(Feed).filter(Feed.user_id == uid, Feed.url == url.strip()).one_or_none()
     if existing is None:
         db.add(
             Feed(
+                user_id=uid,
                 name=name.strip() or parsed.netloc,
                 url=url.strip(),
                 category=category,
@@ -717,7 +947,7 @@ def create_feed_form(
             )
         )
         db.commit()
-        added = db.query(Feed).filter(Feed.url == url.strip()).one_or_none()
+        added = db.query(Feed).filter(Feed.user_id == uid, Feed.url == url.strip()).one_or_none()
         if added:
             favicon.capture_for_feed_async(added.id)
     if _wants_json(request):
@@ -832,9 +1062,13 @@ def delete_feed_form(
 
 @router.post("/catalog/{catalog_id}/add")
 def add_catalog_form(catalog_id: str, request: Request, db: Annotated[Session, Depends(get_db)]):
-    from app.routers.feeds import add_recommended
+    from app.routers.feeds import add_catalog_feed
 
-    add_recommended(catalog_id, db)
+    session = session_from_request(request)
+    is_admin = bool(session and session.role == "admin")
+    if not is_admin and not catalog_service.is_catalog_approved(db, catalog_id):
+        return _form_error(request, "That source is not approved for this household.", "/catalog", 403)
+    add_catalog_feed(db, catalog_id, user_id=_current_user_id(request))
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Feed enabled."})
     return RedirectResponse("/catalog", status_code=303)
@@ -844,16 +1078,18 @@ def add_catalog_form(catalog_id: str, request: Request, db: Annotated[Session, D
 def remove_catalog_form(catalog_id: str, request: Request, db: Annotated[Session, Depends(get_db)]):
     from app.services.catalog import find_catalog_item
 
+    uid = _current_user_id(request)
     item = find_catalog_item(catalog_id)
     feed = None
     if item:
         feed = (
             db.query(Feed)
+            .filter(Feed.user_id == uid)
             .filter((Feed.catalog_id == catalog_id) | (Feed.url == item["url"]))
             .one_or_none()
         )
     else:
-        feed = db.query(Feed).filter(Feed.catalog_id == catalog_id).one_or_none()
+        feed = db.query(Feed).filter(Feed.user_id == uid, Feed.catalog_id == catalog_id).one_or_none()
     if feed:
         db.delete(feed)
         db.commit()
@@ -917,69 +1153,104 @@ async def save_settings(
     ntfy_notify_on_push: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "device",
 ):
-    tab = normalize_settings_tab(settings_tab)
+    session = session_from_request(request)
+    role = session.role if session else "user"
+    is_admin = role == "admin"
+    can_ntfy = _session_can_use_ntfy(db, request)
+    tab = normalize_settings_tab_for_role(settings_tab, role, can_use_ntfy=can_ntfy)
+    if tab in ADMIN_ONLY_SETTINGS_TABS and not is_admin:
+        return _settings_error(request, "That settings section is for the household admin.", "device")
+    if tab == "notifications" and not can_ntfy:
+        return _settings_error(request, "Phone alerts are not enabled for your account.", "device")
     form = await request.form()
     reauth = False
     current_user, current_pass = settings.get_admin_credentials(db)
     changing_password = bool(new_password.strip())
     changing_username = bool(admin_username.strip()) and admin_username.strip() != current_user
 
+    if (changing_password or changing_username) and not is_admin:
+        return _settings_error(request, "Only the household admin can change login credentials here.", tab)
+
     if changing_password or changing_username:
-        if current_password != current_pass:
+        if not passwords.verify_password(current_pass, current_password):
             return _settings_error(request, "Current password is incorrect.", tab)
         if changing_password:
             if new_password != new_password_confirm:
                 return _settings_error(request, "New passwords do not match.", tab)
             if len(new_password) < 4:
                 return _settings_error(request, "New password must be at least 4 characters.", tab)
-            settings.set_value(db, "admin_password", new_password)
+            hashed = passwords.hash_password(new_password)
+            settings.set_value(db, "admin_password", hashed)
+            admin_row = db.query(User).filter(User.username == current_user).one_or_none()
+            if admin_row is not None:
+                admin_row.password = hashed
+                db.commit()
             reauth = True
         if changing_username:
             settings.set_value(db, "admin_username", admin_username.strip())
+            admin_row = db.query(User).filter(User.username == current_user).one_or_none()
+            if admin_row is not None:
+                admin_row.username = admin_username.strip()
+                db.commit()
             reauth = True
 
-    if clear_openai_api_key:
-        settings.clear_value(db, "openai_api_key")
-    elif openai_api_key.strip():
-        settings.set_value(db, "openai_api_key", openai_api_key.strip())
+    if is_admin:
+        https_enabled = str(form.get("https_enabled") or "").strip()
+        settings.set_value(db, "https_enabled", "1" if https_enabled else "0")
+    ui_lang = str(form.get("ui_lang") or settings.DEFAULT_UI_LANG).strip().lower()
+    allowed_langs = {code for code, _label in settings.UI_LANG_CHOICES}
+    if ui_lang not in allowed_langs:
+        ui_lang = settings.DEFAULT_UI_LANG
+    if is_admin:
+        settings.set_value(db, "ui_lang", ui_lang)
+    session = session_from_request(request)
+    if session and session.user_id:
+        user_settings_service.set_value(db, session.user_id, "ui_lang", ui_lang)
+        admin_row = db.get(User, session.user_id)
+        if admin_row is not None:
+            admin_row.ui_lang = ui_lang
+            db.commit()
 
-    chosen_model = openai_model.strip()
-    if chosen_model == "other":
-        chosen_model = openai_model_custom.strip()
-    if chosen_model:
-        settings.set_value(db, "openai_model", chosen_model)
+    if is_admin:
+        if clear_openai_api_key:
+            settings.clear_value(db, "openai_api_key")
+        elif openai_api_key.strip():
+            settings.set_value(db, "openai_api_key", openai_api_key.strip())
 
-    provider = settings.normalize_provider(llm_provider)
-    settings.set_value(db, "llm_provider", provider)
-    ollama_root = settings.normalize_ollama_root(ollama_base_url)
-    if not ollama_root.startswith(("http://", "https://")):
-        return _settings_error(request, "Ollama URL must start with http:// or https://", tab)
-    settings.set_value(db, "ollama_base_url", ollama_root)
-    if ollama_model.strip():
-        settings.set_value(db, "ollama_model", ollama_model.strip())
-    else:
-        settings.clear_value(db, "ollama_model")
-    if instance_name.strip():
-        settings.set_value(db, "instance_name", instance_name.strip()[:80])
-    else:
-        settings.clear_value(db, "instance_name")
+        chosen_model = openai_model.strip()
+        if chosen_model == "other":
+            chosen_model = openai_model_custom.strip()
+        if chosen_model:
+            settings.set_value(db, "openai_model", chosen_model)
 
-    if clear_x3_sync_token:
-        settings.clear_value(db, "x3_sync_token")
-    elif x3_sync_token.strip():
-        settings.set_value(db, "x3_sync_token", x3_sync_token.strip())
+        provider = settings.normalize_provider(llm_provider)
+        settings.set_value(db, "llm_provider", provider)
+        ollama_root = settings.normalize_ollama_root(ollama_base_url)
+        if not ollama_root.startswith(("http://", "https://")):
+            return _settings_error(request, "Ollama URL must start with http:// or https://", tab)
+        settings.set_value(db, "ollama_base_url", ollama_root)
+        if ollama_model.strip():
+            settings.set_value(db, "ollama_model", ollama_model.strip())
+        else:
+            settings.clear_value(db, "ollama_model")
+        if instance_name.strip():
+            settings.set_value(db, "instance_name", instance_name.strip()[:80])
+        else:
+            settings.clear_value(db, "instance_name")
 
-    settings.set_value(db, "x3_catalog_login", "1" if x3_catalog_login else "0")
-    if x3_catalog_username.strip():
-        settings.set_value(db, "x3_catalog_username", x3_catalog_username.strip()[:80])
-    else:
-        settings.clear_value(db, "x3_catalog_username")
-    settings.set_value(db, "x3_device_id", x3_device_id.strip())
+        settings.set_value(db, "x3_catalog_login", "1" if x3_catalog_login else "0")
+        if x3_catalog_username.strip():
+            settings.set_value(db, "x3_catalog_username", x3_catalog_username.strip()[:80])
+        else:
+            settings.clear_value(db, "x3_catalog_username")
+        settings.set_value(db, "x3_device_id", x3_device_id.strip())
+
     settings.set_value(db, "keyword_include", keyword_include.strip())
     settings.set_value(db, "keyword_exclude", keyword_exclude.strip())
-    provider = translate_provider.strip().lower()
-    if provider in settings.TRANSLATE_PROVIDER_IDS:
-        settings.set_value(db, "translate_provider", provider)
+    if is_admin:
+        provider = translate_provider.strip().lower()
+        if provider in settings.TRANSLATE_PROVIDER_IDS:
+            settings.set_value(db, "translate_provider", provider)
     settings.set_value(db, "translate_target_lang", translate.normalize_target_lang(translate_target_lang))
     device = settings.normalize_reader_device(reader_device)
     settings.set_value(db, "reader_device", device)
@@ -1022,44 +1293,71 @@ async def save_settings(
         settings.set_value(db, "reader_paper_label", label)
     else:
         settings.clear_value(db, "reader_paper_label")
-    settings.set_value(db, "ntfy_enabled", "1" if ntfy_enabled else "0")
-    settings.set_value(db, "ntfy_server", ntfy.normalize_server(ntfy_server))
-    topic = ntfy_topic.strip()
-    if topic:
-        settings.set_value(db, "ntfy_topic", topic)
-    else:
-        settings.clear_value(db, "ntfy_topic")
-    if clear_ntfy_token:
-        settings.clear_value(db, "ntfy_token")
-    elif ntfy_token.strip():
-        settings.set_value(db, "ntfy_token", ntfy_token.strip())
-    settings.set_value(db, "ntfy_notify_on_publish", "1" if ntfy_notify_on_publish else "0")
-    settings.set_value(db, "ntfy_notify_on_push", "1" if ntfy_notify_on_push else "0")
-    wanted_host = hostname.normalize_hostname(device_hostname)
-    if wanted_host:
-        if not hostname.valid_hostname(wanted_host):
-            return _settings_error(request, "Hostname must be letters, digits, or hyphens.", tab)
-        settings.set_value(db, "device_hostname", wanted_host)
-        hostname.apply_os_hostname(wanted_host)
-    else:
-        settings.clear_value(db, "device_hostname")
-    if ingest_interval_minutes.strip():
-        try:
-            minutes = int(ingest_interval_minutes)
-            if minutes > 0:
-                settings.set_value(db, "ingest_interval_minutes", str(minutes))
-        except ValueError:
-            return _settings_error(request, "Refresh interval must be a number of minutes.", tab)
-    start_clock = normalize_optional_clock(ingest_active_start)
-    end_clock = normalize_optional_clock(ingest_active_end)
-    if start_clock:
-        settings.set_value(db, "ingest_active_start", start_clock)
-    else:
-        settings.clear_value(db, "ingest_active_start")
-    if end_clock:
-        settings.set_value(db, "ingest_active_end", end_clock)
-    else:
-        settings.clear_value(db, "ingest_active_end")
+
+    uid = _current_user_id(request)
+    # Per-user ntfy: only when admin grants can_use_ntfy (admins always allowed).
+    if can_ntfy:
+        ntfy.migrate_user_ntfy_from_instance(db, uid)
+        user_settings_service.set_value(db, uid, "ntfy_enabled", "1" if ntfy_enabled else "0")
+        topic = ntfy_topic.strip()
+        if topic:
+            user_settings_service.set_value(db, uid, "ntfy_topic", topic)
+        else:
+            user_settings_service.clear_value(db, uid, "ntfy_topic")
+        if clear_ntfy_token:
+            user_settings_service.clear_value(db, uid, "ntfy_token")
+        elif ntfy_token.strip():
+            user_settings_service.set_value(db, uid, "ntfy_token", ntfy_token.strip())
+        user_settings_service.set_value(db, uid, "ntfy_notify_on_publish", "1" if ntfy_notify_on_publish else "0")
+        user_settings_service.set_value(db, uid, "ntfy_notify_on_push", "1" if ntfy_notify_on_push else "0")
+        server_raw = ntfy_server.strip()
+        if is_admin:
+            # Admin sets the household default server on instance settings.
+            settings.set_value(db, "ntfy_server", ntfy.normalize_server(server_raw))
+            user_settings_service.clear_value(db, uid, "ntfy_server")
+        else:
+            if server_raw and ntfy.normalize_server(server_raw) != ntfy.normalize_server(
+                settings.get_value(db, "ntfy_server")
+            ):
+                user_settings_service.set_value(db, uid, "ntfy_server", ntfy.normalize_server(server_raw))
+            else:
+                user_settings_service.clear_value(db, uid, "ntfy_server")
+
+    if clear_x3_sync_token:
+        user_settings_service.clear_value(db, uid, "x3_sync_token")
+        if is_admin:
+            settings.clear_value(db, "x3_sync_token")
+    elif x3_sync_token.strip():
+        user_settings_service.set_value(db, uid, "x3_sync_token", x3_sync_token.strip())
+        if is_admin:
+            settings.set_value(db, "x3_sync_token", x3_sync_token.strip())
+
+    if is_admin:
+        wanted_host = hostname.normalize_hostname(device_hostname)
+        if wanted_host:
+            if not hostname.valid_hostname(wanted_host):
+                return _settings_error(request, "Hostname must be letters, digits, or hyphens.", tab)
+            settings.set_value(db, "device_hostname", wanted_host)
+            hostname.apply_os_hostname(wanted_host)
+        else:
+            settings.clear_value(db, "device_hostname")
+        if ingest_interval_minutes.strip():
+            try:
+                minutes = int(ingest_interval_minutes)
+                if minutes > 0:
+                    settings.set_value(db, "ingest_interval_minutes", str(minutes))
+            except ValueError:
+                return _settings_error(request, "Refresh interval must be a number of minutes.", tab)
+        start_clock = normalize_optional_clock(ingest_active_start)
+        end_clock = normalize_optional_clock(ingest_active_end)
+        if start_clock:
+            settings.set_value(db, "ingest_active_start", start_clock)
+        else:
+            settings.clear_value(db, "ingest_active_start")
+        if end_clock:
+            settings.set_value(db, "ingest_active_end", end_clock)
+        else:
+            settings.clear_value(db, "ingest_active_end")
     if briefing_limit.strip():
         try:
             limit = int(briefing_limit)
@@ -1099,15 +1397,16 @@ async def save_settings(
             if form.get(f"category_opds_{category.key}"):
                 opds_keys.add(category.key)
         settings.set_value(db, "briefing_category_opds_keys", settings.encode_category_opds_keys(opds_keys))
-    if briefing_publish_at.strip():
+    if is_admin and briefing_publish_at.strip():
         settings.set_value(db, "briefing_publish_at", normalize_publish_at(briefing_publish_at))
-    repo = update.normalize_repo(github_repo)
-    if github_repo.strip() and not repo:
-        return _settings_error(request, "GitHub repository must look like owner/NewsCast.", tab)
-    if repo:
-        settings.set_value(db, "github_repo", repo)
-    else:
-        settings.clear_value(db, "github_repo")
+    if is_admin:
+        repo = update.normalize_repo(github_repo)
+        if github_repo.strip() and not repo:
+            return _settings_error(request, "GitHub repository must look like owner/NewsCast.", tab)
+        if repo:
+            settings.set_value(db, "github_repo", repo)
+        else:
+            settings.clear_value(db, "github_repo")
 
     payload = {"ok": True, "message": "Settings saved.", "reauth": reauth}
     if _wants_json(request):
@@ -1123,6 +1422,9 @@ async def save_settings(
 
 @router.post("/settings/updates/check")
 def check_updates(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only the household admin can check for updates.", settings_path("device"))
     result = update.check_latest(db)
     if _wants_json(request):
         return JSONResponse({"ok": bool(result.get("ok")), "message": result.get("message") or "Checked GitHub."})
@@ -1131,6 +1433,9 @@ def check_updates(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.post("/settings/updates/install")
 def install_update(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only the household admin can install updates.", settings_path("device"))
     try:
         result = update.install_latest(db)
     except ValueError as exc:
@@ -1146,6 +1451,9 @@ def install_update(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.post("/settings/updates/rollback")
 def rollback_update(request: Request):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only the household admin can roll back updates.", settings_path("device"))
     try:
         update.rollback_code()
     except ValueError as exc:
@@ -1160,7 +1468,10 @@ def rollback_update(request: Request):
 
 
 @router.get("/settings/backup")
-def download_backup():
+def download_backup(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can download backups.", settings_path("backup"), 403)
     path = backup.write_backup()
     return FileResponse(path, filename=path.name, media_type="application/zip")
 
@@ -1168,8 +1479,12 @@ def download_backup():
 @router.post("/settings/backup/restore")
 def restore_backup_form(
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
     file: UploadFile = File(...),
 ):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can restore backups.", settings_path("backup"), 403)
     data = file.file.read()
     try:
         backup.restore_backup(data)
@@ -1178,6 +1493,160 @@ def restore_backup_form(
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Backup restored. Settings and sources are back."})
     return RedirectResponse(settings_path("backup"), status_code=303)
+
+
+@router.post("/settings/users")
+def create_user_form(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    username: Annotated[str, Form()] = "",
+    password: Annotated[str, Form()] = "",
+    can_add_custom_sources: Annotated[str, Form()] = "",
+    can_use_ntfy: Annotated[str, Form()] = "",
+):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can create users.", settings_path("users"), 403)
+    try:
+        user = users_service.create_user(
+            db,
+            username=username,
+            password=password,
+            role="user",
+            can_add_custom_sources=bool(can_add_custom_sources),
+            can_use_ntfy=bool(can_use_ntfy),
+        )
+    except ValueError as exc:
+        return _form_error(request, str(exc), settings_path("users"))
+    token = users_service.issue_login_token(db, user)
+    share = hostname.get_public_base_url(db).rstrip("/")
+    login_url = f"{share}/login/token/{token}"
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": "User created.", "login_url": login_url})
+    # Re-render settings users tab with QR so admin can scan once.
+    return render(
+        request,
+        "settings.html",
+        {
+            **_settings_page_context(request, db, "users"),
+            "login_qr_user": user.username,
+            "login_qr_svg": qrcode.svg_for(login_url),
+            "login_qr_url": login_url,
+            "users_notice": f"Created {user.username}. Scan the QR so they can sign in once.",
+        },
+        db=db,
+    )
+
+
+@router.post("/settings/users/{user_id}/permissions")
+@router.post("/settings/users/{user_id}")
+def update_user_form(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    can_add_custom_sources: Annotated[str, Form()] = "",
+    can_use_ntfy: Annotated[str, Form()] = "",
+    active: Annotated[str, Form()] = "",
+    new_password: Annotated[str, Form()] = "",
+    new_password_confirm: Annotated[str, Form()] = "",
+):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can change user settings.", settings_path("users"), 403)
+    user = db.get(User, user_id)
+    if user is None:
+        return _form_error(request, "User not found.", settings_path("users"), 404)
+
+    password = new_password.strip()
+    if password or new_password_confirm.strip():
+        if password != new_password_confirm.strip():
+            return _form_error(request, "New passwords do not match.", settings_path("users"))
+
+    try:
+        users_service.update_user(
+            db,
+            user,
+            can_add_custom_sources=bool(can_add_custom_sources) if user.role != "admin" else True,
+            can_use_ntfy=bool(can_use_ntfy) if user.role != "admin" else True,
+            active=bool(active) if user.role != "admin" else True,
+            new_password=password or None,
+        )
+    except ValueError as exc:
+        return _form_error(request, str(exc), settings_path("users"))
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": f"Updated {user.username}."})
+    return render(
+        request,
+        "settings.html",
+        {
+            **_settings_page_context(request, db, "users"),
+            "users_notice": f"Saved settings for {user.username}.",
+        },
+        db=db,
+    )
+
+
+@router.post("/settings/users/{user_id}/delete")
+def delete_user_form(user_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can remove users.", settings_path("users"), 403)
+    user = db.get(User, user_id)
+    if user is None:
+        return _form_error(request, "User not found.", settings_path("users"), 404)
+    try:
+        username = users_service.delete_user(db, user, actor_id=session.user_id)
+    except ValueError as exc:
+        return _form_error(request, str(exc), settings_path("users"))
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": f"Removed {username}."})
+    return render(
+        request,
+        "settings.html",
+        {
+            **_settings_page_context(request, db, "users"),
+            "users_notice": f"Removed {username}.",
+        },
+        db=db,
+    )
+
+
+@router.post("/settings/users/{user_id}/qr")
+def show_user_login_qr(user_id: int, request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can issue login QR codes.", settings_path("users"), 403)
+    user = db.get(User, user_id)
+    if user is None or not user.active:
+        return _form_error(request, "User not found.", settings_path("users"), 404)
+    token = users_service.issue_login_token(db, user)
+    share = hostname.get_public_base_url(db).rstrip("/")
+    login_url = f"{share}/login/token/{token}"
+    return render(
+        request,
+        "settings.html",
+        {
+            **_settings_page_context(request, db, "users"),
+            "login_qr_user": user.username,
+            "login_qr_svg": qrcode.svg_for(login_url),
+            "login_qr_url": login_url,
+        },
+        db=db,
+    )
+
+
+@router.post("/settings/catalog/approvals")
+async def save_catalog_approvals(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can approve catalog sources.", settings_path("catalog"), 403)
+    form = await request.form()
+    approved = {str(key)[len("approve_") :] for key in form.keys() if str(key).startswith("approve_")}
+    catalog_service.set_catalog_approvals(db, approved)
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "message": "Catalog approvals saved."})
+    return RedirectResponse(settings_path("catalog"), status_code=303)
 
 
 @router.post("/settings/categories")
@@ -1258,8 +1727,11 @@ def export_package(db: Annotated[Session, Depends(get_db)], category: str = ""):
     )
 
 
-def _library_items(db: Session) -> list[dict]:
-    items = db.query(LibraryFile).order_by(LibraryFile.created_at.desc()).all()
+def _library_items(db: Session, user_id: int | None = None) -> list[dict]:
+    query = db.query(LibraryFile)
+    if user_id is not None:
+        query = query.filter(LibraryFile.user_id == user_id)
+    items = query.order_by(LibraryFile.created_at.desc()).all()
     return [
         {
             "id": item.id,

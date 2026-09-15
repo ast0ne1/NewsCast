@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -57,11 +57,21 @@ def list_feeds(db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("/api/feeds")
-def create_feed(payload: FeedCreate, db: Annotated[Session, Depends(get_db)]):
-    existing = db.query(Feed).filter(Feed.url == payload.url.strip()).one_or_none()
+def create_feed(payload: FeedCreate, request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.auth import effective_user_id, session_from_request
+    from app.models import User
+
+    session = session_from_request(request)
+    uid = effective_user_id(session)
+    is_admin = bool(session and session.role == "admin")
+    user_row = db.get(User, uid) if uid else None
+    if not is_admin and not (user_row and user_row.can_add_custom_sources):
+        raise HTTPException(status_code=403, detail="Custom sources are not enabled for your account.")
+    existing = db.query(Feed).filter(Feed.user_id == uid, Feed.url == payload.url.strip()).one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="That feed URL is already added.")
     feed = Feed(
+        user_id=uid,
         name=payload.name.strip(),
         url=payload.url.strip(),
         category=payload.category,
@@ -123,14 +133,25 @@ def recommended_feeds(db: Annotated[Session, Depends(get_db)]):
     return {"categories": grouped_catalog(db)}
 
 
-@router.post("/api/feeds/recommended/{catalog_id}")
-def add_recommended(catalog_id: str, db: Annotated[Session, Depends(get_db)]):
+def add_catalog_feed(db: Session, catalog_id: str, user_id: int = 1, *, require_approved: bool = False) -> dict:
     item = find_catalog_item(catalog_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Unknown recommended feed")
-    feed = db.query(Feed).filter((Feed.catalog_id == catalog_id) | (Feed.url == item["url"])).one_or_none()
+    if require_approved:
+        from app.services.catalog import is_catalog_approved
+
+        if not is_catalog_approved(db, catalog_id):
+            raise HTTPException(status_code=403, detail="That source is not approved for this household.")
+    uid = int(user_id or 1)
+    feed = (
+        db.query(Feed)
+        .filter(Feed.user_id == uid)
+        .filter((Feed.catalog_id == catalog_id) | (Feed.url == item["url"]))
+        .one_or_none()
+    )
     if feed is None:
         feed = Feed(
+            user_id=uid,
             catalog_id=item["id"],
             name=item["name"],
             url=item["url"],
@@ -151,6 +172,20 @@ def add_recommended(catalog_id: str, db: Annotated[Session, Depends(get_db)]):
 
     capture_for_feed_async(feed.id)
     return _feed_dict(feed)
+
+
+@router.post("/api/feeds/recommended/{catalog_id}")
+def add_recommended(catalog_id: str, request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.auth import effective_user_id, session_from_request
+
+    session = session_from_request(request)
+    is_admin = bool(session and session.role == "admin")
+    return add_catalog_feed(
+        db,
+        catalog_id,
+        effective_user_id(session),
+        require_approved=not is_admin,
+    )
 
 
 @router.delete("/api/feeds/recommended/{catalog_id}")

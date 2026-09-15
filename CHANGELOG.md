@@ -1,6 +1,40 @@
 ﻿# Changelog
 
-Current version is **0.0.0.7**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.8**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.8 — 2026-09-15
+
+### Added
+- Opt-in LAN HTTPS under Settings → General (reverse proxy); Secure cookies and https share/OPDS URLs when enabled
+- Always-on argon2id password hashing and login rate limiting
+- Household multi-user accounts with per-user feeds, papers, library, OPDS, ntfy, and shared URL fetch cache
+- Interface language under Settings → General (`app/services/i18n.py`, `app/locales/*.json`); nav, login, ingest pill, and JS busy/confirm strings via `t()`; Spanish scaffold for fallbacks
+- Per-user ntfy topic/token/events (blank server uses household default); Settings → Notifications writes user settings
+- Admin permission `can_use_ntfy` (off by default) gates the Notifications tab and ntfy sends for non-admins
+- Per-user OPDS/X3 mounts at `/opds/u/{username}` and `/api/x3/u/{username}`; legacy `/opds` and `/api/x3` keep serving the admin catalog
+- Catalog approvals (Settings → Catalog) so non-admins only Add household-approved sources; custom URL add gated by `can_add_custom_sources`
+- One-time login QR / `/login/token/{token}` from Settings → Users
+
+### Changed
+- Backup/restore covers nested library paths, briefings, and feed cache used by multi-user installs
+- UI `ui_lang` prefers the signed-in user’s setting over the instance General default
+- Backup download/restore stays admin-only
+- Non-admins only see their Settings tabs (no LLM, Schedule, Catalog packages, Users, Backup, Update)
+- Status emphasizes each user’s `/opds/u/{username}` catalog URL
+- Catalog approvals titled “Approved for user viewing”, with Select all / Unselect all
+- Startup migrates `users.can_use_ntfy` before loading the admin user (fixes local DB upgrade crash)
+- Settings → Users is a polished People list: per-user cards with permission chips, editable custom feeds / ntfy / active, password reset, login QR, and remove account
+- Status catalog/share URLs wrap on narrow phones so long `/opds/u/…` links no longer overflow the gutter
+- README phone screenshots refreshed for 0.0.0.8; Web UI table and OPDS paths updated for multi-user / Settings tabs
+- README and INSTALL brought in line with current capability: household accounts, ntfy, HTTPS/Caddy, Publication/Translation, per-user OPDS, and argon2id login notes
+- Admin can remove a household user (and that user’s feeds, stories, papers, and Send files); admin accounts stay protected
+- Show login QR / create-user forms submit as normal page posts so the QR card actually appears (fetch+reload was dropping it)
+- Login QR card has a Hide button to dismiss it after scanning
+- About shows the GitHub profile link instead of the author name
+- Status / Send queue rows stack on phones so paper titles are not crushed by “Remove from transfer”
+- Action buttons gain small icons (Save article, Search, Check reader, Push now, Queue for later, Remove, Add file, Save settings)
+- Send “Your files” rows also stack on narrow screens
+- Mobile buttons are more compact (shorter labels, denser action rows, slightly smaller tap height)
 
 ## 0.0.0.7 — 2026-09-15
 

@@ -86,7 +86,32 @@ def _http_get(
     accept: str | None = None,
     timeout: httpx.Timeout | None = None,
     status_out: list[int] | None = None,
+    db: Session | None = None,
+    fetch_cache: dict[str, tuple[str, int]] | None = None,
 ) -> str:
+    key = (url or "").strip()
+    if fetch_cache is not None and key in fetch_cache:
+        body, code = fetch_cache[key]
+        if status_out is not None:
+            status_out.append(code)
+        return body
+    if db is not None:
+        from app.services import source_cache
+
+        try:
+            body, code = source_cache.get_or_fetch_feed(
+                db,
+                key,
+                accept=accept,
+                timeout=timeout,
+            )
+            if fetch_cache is not None:
+                fetch_cache[key] = (body, code)
+            if status_out is not None:
+                status_out.append(code)
+            return body
+        except Exception:
+            pass
     with httpx.Client(
         timeout=timeout or HTTP_TIMEOUT,
         follow_redirects=True,
@@ -96,11 +121,24 @@ def _http_get(
         if status_out is not None:
             status_out.append(response.status_code)
         response.raise_for_status()
-        return response.text
+        body = response.text
+        if fetch_cache is not None:
+            fetch_cache[key] = (body, response.status_code)
+        return body
 
 
-def _http_get_html(url: str) -> str:
-    return _http_get(url, accept=HTML_ACCEPT, timeout=PAGE_TIMEOUT)
+def _http_get_html(url: str, db: Session | None = None) -> str:
+    if db is not None:
+        from app.services import source_cache
+
+        try:
+            _title, excerpt = source_cache.get_or_fetch_article(db, url)
+            if excerpt:
+                # Prefer full HTML path for trafilatura; article cache stores excerpt only.
+                pass
+        except Exception:
+            pass
+    return _http_get(url, accept=HTML_ACCEPT, timeout=PAGE_TIMEOUT, db=db)
 
 
 def _plain_text(value: str) -> str:
@@ -111,12 +149,23 @@ def _plain_text(value: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _extract_article(url: str, fallback: str) -> str:
+def _extract_article(url: str, fallback: str, db: Session | None = None) -> str:
     fallback = _plain_text(fallback)
     if len(fallback) >= MIN_EXCERPT_CHARS:
         return fallback
+    if db is not None:
+        from app.services import source_cache
+
+        try:
+            _title, excerpt = source_cache.get_or_fetch_article(db, url)
+            if excerpt and len(excerpt.strip()) >= MIN_EXCERPT_CHARS:
+                return excerpt.strip()
+            if excerpt:
+                fallback = excerpt.strip() or fallback
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("cached extract failed for %s: %s", url, exc)
     try:
-        html = _http_get_html(url)
+        html = _http_get_html(url, db=db)
         text = trafilatura.extract(html, include_comments=False, include_tables=False)
         if text:
             return text.strip()
@@ -125,8 +174,14 @@ def _extract_article(url: str, fallback: str) -> str:
     return fallback
 
 
-def _existing_lookup(db: Session) -> tuple[set[str], set[str], list[tuple[str, datetime | None]]]:
-    stories = db.query(Story).all()
+def _existing_lookup(
+    db: Session,
+    user_id: int | None = None,
+) -> tuple[set[str], set[str], list[tuple[str, datetime | None]]]:
+    query = db.query(Story)
+    if user_id is not None:
+        query = query.filter(Story.user_id == user_id)
+    stories = query.all()
     urls = {story.canonical_url for story in stories}
     hashes = {story.content_hash for story in stories}
     titles = [(story.title, story.published_at or story.created_at) for story in stories]
@@ -185,9 +240,19 @@ def _items_from_scrape(page_url: str, page_html: str, feed: Feed) -> list[dict]:
     return items
 
 
-def _try_rss_url(url: str, feed: Feed, status_out: list[int] | None = None) -> list[dict]:
+def _try_rss_url(
+    url: str,
+    feed: Feed,
+    status_out: list[int] | None = None,
+    *,
+    db: Session | None = None,
+    fetch_cache: dict[str, tuple[str, int]] | None = None,
+) -> list[dict]:
     try:
-        return _items_from_parsed(feedparser.parse(_http_get(url, status_out=status_out)), feed)
+        return _items_from_parsed(
+            feedparser.parse(_http_get(url, status_out=status_out, db=db, fetch_cache=fetch_cache)),
+            feed,
+        )
     except httpx.HTTPStatusError as exc:
         if status_out is not None:
             status_out.append(exc.response.status_code)
@@ -198,30 +263,35 @@ def _try_rss_url(url: str, feed: Feed, status_out: list[int] | None = None) -> l
         return []
 
 
-def _collect_feed_items(feed: Feed) -> tuple[list[dict], int | None]:
+def _collect_feed_items(
+    feed: Feed,
+    *,
+    db: Session | None = None,
+    fetch_cache: dict[str, tuple[str, int]] | None = None,
+) -> tuple[list[dict], int | None]:
     status_out: list[int] = []
     mode = (feed.type or "auto").lower()
     if mode == "rss" or looks_like_feed_url(feed.url):
-        direct = _try_rss_url(feed.url, feed, status_out)
+        direct = _try_rss_url(feed.url, feed, status_out, db=db, fetch_cache=fetch_cache)
         if direct:
             return direct, status_out[-1] if status_out else 200
         if mode == "rss":
             raise RuntimeError("No RSS entries found")
     if mode in {"auto", "webpage"}:
         for guessed in guess_feed_urls(feed.url):
-            found = _try_rss_url(guessed, feed, status_out)
+            found = _try_rss_url(guessed, feed, status_out, db=db, fetch_cache=fetch_cache)
             if found:
                 return found, status_out[-1] if status_out else 200
     homepage_error = None
     body = ""
     try:
-        body = _http_get(feed.url, status_out=status_out)
+        body = _http_get(feed.url, status_out=status_out, db=db, fetch_cache=fetch_cache)
     except Exception as exc:  # noqa: BLE001
         homepage_error = exc
     else:
         discovered = discover_rss(feed.url, body)
         if discovered and discovered.rstrip("/") != feed.url.rstrip("/"):
-            found = _try_rss_url(discovered, feed, status_out)
+            found = _try_rss_url(discovered, feed, status_out, db=db, fetch_cache=fetch_cache)
             if found:
                 return found, status_out[-1] if status_out else 200
         scraped = _items_from_scrape(feed.url, body, feed)
@@ -328,7 +398,19 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
         global_minutes = settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes)
         active_start = settings.get_value(db, "ingest_active_start")
         active_end = settings.get_value(db, "ingest_active_end")
-        urls, hashes, titles = _existing_lookup(db)
+        urls_by_user: dict[int, set[str]] = {}
+        hashes_by_user: dict[int, set[str]] = {}
+        titles_by_user: dict[int, list[tuple[str, datetime | None]]] = {}
+        fetch_cache: dict[str, tuple[str, int]] = {}
+
+        def _lookup_for(uid: int):
+            if uid not in urls_by_user:
+                urls, hashes, titles = _existing_lookup(db, uid)
+                urls_by_user[uid] = urls
+                hashes_by_user[uid] = hashes
+                titles_by_user[uid] = titles
+            return urls_by_user[uid], hashes_by_user[uid], titles_by_user[uid]
+
         if feed_id is not None:
             feed = db.get(Feed, feed_id)
             if feed is None:
@@ -361,8 +443,14 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
         candidates: list[dict] = []
         for feed in feeds:
             state.progress = feed.name
+            uid = int(getattr(feed, "user_id", None) or 1)
+            urls, hashes, titles = _lookup_for(uid)
             try:
-                items, status_code = _unpack_collect(_collect_feed_items(feed))
+                try:
+                    collected = _collect_feed_items(feed, db=db, fetch_cache=fetch_cache)
+                except TypeError:
+                    collected = _collect_feed_items(feed)
+                items, status_code = _unpack_collect(collected)
                 feed.last_fetched_at = utcnow()
                 feed.last_error = None
                 record_fetch(feed, status_code=status_code or 200, item_count=len(items))
@@ -373,6 +461,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                 for item in items:
                     item["excerpt"] = _plain_text(item.get("excerpt") or "")
                     item["summarize"] = summarize_feed
+                    item["user_id"] = uid
                     digest = content_hash(item["title"], item["excerpt"])
                     if _is_known(item["title"], item["published_at"], item["url"], digest, urls, hashes, titles):
                         continue
@@ -380,7 +469,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                         extracts < MAX_EXTRACTS_PER_FEED and len(item["excerpt"]) < MIN_EXCERPT_CHARS
                     )
                     if should_extract:
-                        item["excerpt"] = _extract_article(item["url"], item["excerpt"])
+                        item["excerpt"] = _extract_article(item["url"], item["excerpt"], db=db)
                         if summarize_feed:
                             extracts += 1
                     if translate_feed:
@@ -434,7 +523,10 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
         clusters: dict[str, dict] = {}
         for item in candidates:
             matched = None
+            cluster_namespace = f"{item.get('user_id', 1)}:"
             for key, chosen in clusters.items():
+                if not key.startswith(cluster_namespace):
+                    continue
                 if is_duplicate_title(item["title"], chosen["title"]):
                     matched = key
                     break
@@ -443,7 +535,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                     item["cluster_key"] = clusters[matched]["cluster_key"]
                     clusters[matched] = item
                 continue
-            clusters[item["cluster_key"] or item["url"]] = item
+            clusters[f"{cluster_namespace}{item['cluster_key'] or item['url']}"] = item
 
         from app.services.importance import score_importance
         from app.services.summarize import summarize_with_config
@@ -473,6 +565,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
             )
             db.add(
                 Story(
+                    user_id=int(item.get("user_id") or 1),
                     title=item["title"],
                     summary=summary,
                     source_name=item["source"],

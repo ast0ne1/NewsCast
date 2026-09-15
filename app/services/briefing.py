@@ -35,6 +35,25 @@ KEEP_DATED_BRIEFINGS = 7
 DEFAULT_PUBLISH_AT = "06:30"
 SAVED_CATEGORY = "longreads"
 SAVED_CATEGORY_LABEL = "Long reads"
+
+
+def briefing_dir_for(user_id: int | None = None) -> Path:
+    uid = int(user_id or 1)
+    path = BRIEFING_DIR / str(uid)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _scope_stories(query, user_id: int | None):
+    if user_id is not None:
+        return query.filter(Story.user_id == user_id)
+    return query
+
+
+def _scope_feeds(query, user_id: int | None):
+    if user_id is not None:
+        return query.filter(Feed.user_id == user_id)
+    return query
 EINK_CSS = """
 body {
   font-family: Georgia, "Times New Roman", serif;
@@ -253,14 +272,10 @@ def _saved_still_current():
     return or_(Story.expires_at.is_(None), Story.expires_at >= now)
 
 
-def current_saved_stories(db: Session) -> list[Story]:
-    return (
-        db.query(Story)
-        .filter(Story.saved.is_(True))
-        .filter(_saved_still_current())
-        .order_by(Story.created_at.desc())
-        .all()
-    )
+def current_saved_stories(db: Session, user_id: int | None = None) -> list[Story]:
+    query = db.query(Story).filter(Story.saved.is_(True)).filter(_saved_still_current())
+    query = _scope_stories(query, user_id)
+    return query.order_by(Story.created_at.desc()).all()
 
 
 def _diverse_recent(stories: list[Story], limit: int) -> list[Story]:
@@ -388,35 +403,37 @@ def _pick_by_category_mix(
     return picked[:limit]
 
 
-def current_stories(db: Session, limit: int | None = None, day: str | None = None) -> list[Story]:
+def current_stories(
+    db: Session,
+    limit: int | None = None,
+    day: str | None = None,
+    user_id: int | None = None,
+) -> list[Story]:
     if limit is None:
         limit = settings.briefing_limit(db)
     cutoff = retention_cutoff()
     age = _story_age()
     window = _day_window(day) if day else None
     include_saved = day != "yesterday"
-    saved = current_saved_stories(db) if include_saved else []
-    favourites = (
+    saved = current_saved_stories(db, user_id=user_id) if include_saved else []
+    favourites_q = (
         db.query(Story)
         .filter(Story.favourited.is_(True))
         .filter(or_(Story.saved.is_(False), Story.saved.is_(None)))
-        .order_by(age.desc())
-        .all()
     )
+    favourites = _scope_stories(favourites_q, user_id).order_by(age.desc()).all()
     pool_size = max(limit * 8, 80) if settings.briefing_category_mix_enabled(db) else max(limit * 4, 40)
-    recent = (
+    recent_q = (
         db.query(Story)
         .filter(or_(Story.favourited.is_(False), Story.favourited.is_(None)))
         .filter(or_(Story.saved.is_(False), Story.saved.is_(None)))
         .filter(age >= cutoff)
-        .order_by(age.desc())
-        .limit(pool_size)
-        .all()
     )
+    recent = _scope_stories(recent_q, user_id).order_by(age.desc()).limit(pool_size).all()
     favourites = [story for story in favourites if _in_day(story, window)]
     recent = [story for story in recent if _in_day(story, window)]
 
-    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+    feeds = {feed.name: feed for feed in _scope_feeds(db.query(Feed), user_id).all()}
     saved = _apply_keyword_filters(db, saved)
     favourites = _apply_keyword_filters(db, favourites)
     recent = _apply_importance_filter(db, _apply_keyword_filters(db, recent))
@@ -442,14 +459,14 @@ def current_stories(db: Session, limit: int | None = None, day: str | None = Non
     return [*[story for story in stories if story.saved], *feed_stories]
 
 
-def search_stories(db: Session, query: str, limit: int = 50) -> list[Story]:
+def search_stories(db: Session, query: str, limit: int = 50, user_id: int | None = None) -> list[Story]:
     term = (query or "").strip()
     if not term:
         return []
     pattern = f"%{term}%"
     cutoff = retention_cutoff()
     age = _story_age()
-    rows = (
+    rows_q = (
         db.query(Story)
         .filter(
             or_(
@@ -466,10 +483,8 @@ def search_stories(db: Session, query: str, limit: int = 50) -> list[Story]:
                 age >= cutoff,
             )
         )
-        .order_by(age.desc())
-        .limit(limit)
-        .all()
     )
+    rows = _scope_stories(rows_q, user_id).order_by(age.desc()).limit(limit).all()
     kept: list[Story] = []
     now = utcnow()
     for story in rows:
@@ -542,12 +557,12 @@ def dated_category_stem(day: date, category: str) -> str:
     return f"news-{day.isoformat()}-{slug}"
 
 
-def dated_briefing_path(day: date, suffix: str = "epub") -> Path:
-    return BRIEFING_DIR / f"{dated_stem(day)}.{suffix}"
+def dated_briefing_path(day: date, suffix: str = "epub", user_id: int | None = None) -> Path:
+    return briefing_dir_for(user_id) / f"{dated_stem(day)}.{suffix}"
 
 
-def dated_category_path(day: date, category: str, suffix: str = "epub") -> Path:
-    return BRIEFING_DIR / f"{dated_category_stem(day, category)}.{suffix}"
+def dated_category_path(day: date, category: str, suffix: str = "epub", user_id: int | None = None) -> Path:
+    return briefing_dir_for(user_id) / f"{dated_category_stem(day, category)}.{suffix}"
 
 
 def parse_category_from_stem(stem: str) -> str | None:
@@ -567,29 +582,38 @@ def frozen_briefing_path(
     fallback: bool = True,
     now: datetime | None = None,
     category: str | None = None,
+    user_id: int | None = None,
 ) -> Path | None:
     key = normalize_briefing_day(day)
     target = paper_day_for(key, now=now)
     if target is None:
         return None
     slug = slugify(category or "") if category else ""
-    path = dated_category_path(target, slug, suffix) if slug else dated_briefing_path(target, suffix)
+    path = (
+        dated_category_path(target, slug, suffix, user_id=user_id)
+        if slug
+        else dated_briefing_path(target, suffix, user_id=user_id)
+    )
     if path.exists():
         return path
     if fallback and key == "today":
         yesterday = _local_today(now) - timedelta(days=1)
-        prior = dated_category_path(yesterday, slug, suffix) if slug else dated_briefing_path(yesterday, suffix)
+        prior = (
+            dated_category_path(yesterday, slug, suffix, user_id=user_id)
+            if slug
+            else dated_briefing_path(yesterday, suffix, user_id=user_id)
+        )
         if prior.exists():
             return prior
     return None
 
 
-def available_daily_papers(*, now: datetime | None = None, days: int = 2) -> list[date]:
+def available_daily_papers(*, now: datetime | None = None, days: int = 2, user_id: int | None = None) -> list[date]:
     today = _local_today(now)
     found: list[date] = []
     for offset in range(max(1, days)):
         day = today - timedelta(days=offset)
-        if dated_briefing_path(day).exists():
+        if dated_briefing_path(day, user_id=user_id).exists():
             found.append(day)
     return found
 
@@ -599,6 +623,7 @@ def available_category_papers(
     *,
     now: datetime | None = None,
     days: int = 2,
+    user_id: int | None = None,
 ) -> list[date]:
     slug = slugify(category)
     if not slug:
@@ -607,26 +632,33 @@ def available_category_papers(
     found: list[date] = []
     for offset in range(max(1, days)):
         day = today - timedelta(days=offset)
-        if dated_category_path(day, slug).exists():
+        if dated_category_path(day, slug, user_id=user_id).exists():
             found.append(day)
     return found
 
 
-def category_keys_with_papers(*, now: datetime | None = None, days: int = 2) -> list[str]:
+def category_keys_with_papers(*, now: datetime | None = None, days: int = 2, user_id: int | None = None) -> list[str]:
     today = _local_today(now)
     found: set[str] = set()
+    root = briefing_dir_for(user_id)
     for offset in range(max(1, days)):
         day = today - timedelta(days=offset)
-        for path in BRIEFING_DIR.glob(f"news-{day.isoformat()}-*.epub"):
+        for path in root.glob(f"news-{day.isoformat()}-*.epub"):
             key = parse_category_from_stem(path.stem)
             if key:
                 found.add(key)
     return sorted(found)
 
 
-def write_category_briefing_files(db: Session, payload: dict, day: date) -> list[Path]:
+def write_category_briefing_files(
+    db: Session,
+    payload: dict,
+    day: date,
+    user_id: int | None = None,
+) -> list[Path]:
     enabled = settings.briefing_category_opds_keys(db)
-    for path in BRIEFING_DIR.glob(f"news-{day.isoformat()}-*.epub"):
+    root = briefing_dir_for(user_id)
+    for path in root.glob(f"news-{day.isoformat()}-*.epub"):
         key = parse_category_from_stem(path.stem)
         if key and key not in enabled:
             path.unlink(missing_ok=True)
@@ -652,26 +684,27 @@ def write_category_briefing_files(db: Session, payload: dict, day: date) -> list
         cat_payload["title"] = title
         cat_payload["paper_title"] = title
         cat_payload["paper_id"] = f"newscast-{day.isoformat()}-{key}"
-        paths = write_briefing_files(cat_payload, stem=dated_category_stem(day, key))
+        paths = write_briefing_files(cat_payload, stem=dated_category_stem(day, key), user_id=user_id)
         written.append(paths["epub"])
     return written
 
 
-def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS) -> int:
+def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS, user_id: int | None = None) -> int:
     from app.services.paper_naming import day_from_briefing_path
 
-    main_files = sorted(BRIEFING_DIR.glob("news-????-??-??.epub"), reverse=True)
+    root = briefing_dir_for(user_id)
+    main_files = sorted(root.glob("news-????-??-??.epub"), reverse=True)
     keep_days = {day_from_briefing_path(path.stem) for path in main_files[:keep]}
     keep_days.discard(None)
     removed = 0
-    for path in BRIEFING_DIR.glob("news-*.epub"):
+    for path in root.glob("news-*.epub"):
         day = day_from_briefing_path(path.stem)
         if day is None or day in keep_days:
             continue
         path.unlink(missing_ok=True)
         path.with_suffix(".txt").unlink(missing_ok=True)
         removed += 1
-    for path in BRIEFING_DIR.glob("news-*.txt"):
+    for path in root.glob("news-*.txt"):
         day = day_from_briefing_path(path.stem)
         if day is None or day in keep_days:
             continue
@@ -679,10 +712,10 @@ def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS) -> int:
     return removed
 
 
-def paper_status(db: Session, now: datetime | None = None) -> dict:
+def paper_status(db: Session, now: datetime | None = None, user_id: int | None = None) -> dict:
     when = now or datetime.now()
     today = _local_today(when)
-    path = dated_briefing_path(today)
+    path = dated_briefing_path(today, user_id=user_id)
     publish_at = briefing_publish_at(db)
     published = path.exists()
     return {
@@ -699,14 +732,25 @@ def paper_status(db: Session, now: datetime | None = None) -> dict:
 
 
 def maybe_publish_daily_briefing(db: Session, now: datetime | None = None) -> Path | None:
+    from app.models import User
+
     when = now or datetime.now()
     hour, minute = (int(part) for part in briefing_publish_at(db).split(":"))
     if (when.hour, when.minute) < (hour, minute):
-        prune_old_briefings()
+        for user in db.query(User).filter(User.active.is_(True)).all():
+            prune_old_briefings(user_id=user.id)
         return None
-    if dated_briefing_path(when.date()).exists():
-        return None
-    return publish_daily_briefing(db, now=when)
+    published: Path | None = None
+    users = db.query(User).filter(User.active.is_(True)).all()
+    if not users:
+        if dated_briefing_path(when.date(), user_id=1).exists():
+            return None
+        return publish_daily_briefing(db, now=when, user_id=1)
+    for user in users:
+        if dated_briefing_path(when.date(), user_id=user.id).exists():
+            continue
+        published = publish_daily_briefing(db, now=when, user_id=user.id)
+    return published
 
 
 def publish_daily_briefing(
@@ -714,21 +758,23 @@ def publish_daily_briefing(
     *,
     now: datetime | None = None,
     overwrite: bool = False,
+    user_id: int | None = None,
 ) -> Path:
+    uid = int(user_id or 1)
     when = now or datetime.now()
     day = _local_today(when)
-    dest = dated_briefing_path(day)
+    dest = dated_briefing_path(day, user_id=uid)
     created = overwrite or not dest.exists()
     if created:
-        payload = current_briefing_payload(db, day="today")
+        payload = current_briefing_payload(db, day="today", user_id=uid)
         payload["paper_date"] = day.isoformat()
         payload["date_label"] = format_paper_date(day, reader_date_format(db))
         payload["paper_title"] = paper_display_title(db, day)
-        write_briefing_files(payload, stem=dated_stem(day))
-        write_category_briefing_files(db, payload, day)
-    prune_old_briefings()
+        write_briefing_files(payload, stem=dated_stem(day), user_id=uid)
+        write_category_briefing_files(db, payload, day, user_id=uid)
+    prune_old_briefings(user_id=uid)
     if created:
-        enqueue_latest_briefing(db)
+        enqueue_latest_briefing(db, user_id=uid)
         if settings.reader_push_enabled(db):
             from app.services import reader_push
 
@@ -742,6 +788,7 @@ def publish_daily_briefing(
             kind="publish",
             title=instance,
             body=f"Morning paper ready — {paper_title}",
+            user_id=uid,
         )
     return dest
 
@@ -1053,42 +1100,58 @@ def write_epub(payload: dict, dest: Path) -> None:
     epub.write_epub(str(dest), book)
 
 
-def write_briefing_files(payload: dict, stem: str = "news") -> dict[str, Path]:
+def write_briefing_files(
+    payload: dict,
+    stem: str = "news",
+    user_id: int | None = None,
+) -> dict[str, Path]:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in stem).strip("-") or "news"
-    txt_path = BRIEFING_DIR / f"{safe}.txt"
-    epub_path = BRIEFING_DIR / f"{safe}.epub"
+    root = briefing_dir_for(user_id)
+    txt_path = root / f"{safe}.txt"
+    epub_path = root / f"{safe}.epub"
     txt_path.write_text(render_txt(payload), encoding="utf-8")
     write_epub(payload, epub_path)
     return {"txt": txt_path, "epub": epub_path}
 
 
-def current_briefing_payload(db: Session, day: str | None = "today") -> dict:
-    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+def current_briefing_payload(db: Session, day: str | None = "today", user_id: int | None = None) -> dict:
+    feeds = {feed.name: feed for feed in _scope_feeds(db.query(Feed), user_id).all()}
     return stories_payload(
-        current_stories(db, day=day),
+        current_stories(db, day=day, user_id=user_id),
         settings.get_value(db, "instance_name"),
         feeds=feeds,
         labels=category_labels(db),
     )
 
 
-def enqueue_latest_briefing(db: Session) -> SyncTask | None:
+def enqueue_latest_briefing(db: Session, user_id: int | None = None) -> SyncTask | None:
+    uid = int(user_id or 1)
     fmt = (settings.get_value(db, "x3_briefing_format") or env.x3_briefing_format or "txt").lower()
     if fmt not in {"txt", "epub"}:
         fmt = "txt"
-    path = frozen_briefing_path("today", suffix=fmt, fallback=False)
+    path = frozen_briefing_path("today", suffix=fmt, fallback=False, user_id=uid)
     if path is None:
         return None
     day = date.fromisoformat(path.stem.removeprefix("news-"))
-    return enqueue_sync_file(db, path, paper_download_name(db, day, suffix=fmt))
+    return enqueue_sync_file(db, path, paper_download_name(db, day, suffix=fmt), user_id=uid)
 
 
-def enqueue_sync_file(db: Session, path: Path, save_name: str, *, kind: str = "x3", save_path: str | None = None) -> SyncTask:
+def enqueue_sync_file(
+    db: Session,
+    path: Path,
+    save_name: str,
+    *,
+    kind: str = "x3",
+    save_path: str | None = None,
+    user_id: int | None = None,
+) -> SyncTask:
+    uid = int(user_id or 1)
     device_id = settings.get_value(db, "x3_device_id") or env.x3_device_id or ""
     dest = save_path or (env.x3_save_path.rstrip("/") + "/" + save_name)
     kind_name = kind if kind in {"x3", "crosspoint"} else "x3"
     existing = (
         db.query(SyncTask)
+        .filter(SyncTask.user_id == uid)
         .filter(SyncTask.kind == kind_name)
         .filter(SyncTask.status == "pending")
         .filter(SyncTask.save_path == dest)
@@ -1101,6 +1164,7 @@ def enqueue_sync_file(db: Session, path: Path, save_name: str, *, kind: str = "x
         db.refresh(existing)
         return existing
     task = SyncTask(
+        user_id=uid,
         task_id=uuid.uuid4().hex,
         device_id=device_id,
         status="pending",

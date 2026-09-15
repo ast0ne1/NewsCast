@@ -11,11 +11,12 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app import __version__
-from app.config import BACKUPS_DIR, DATA_DIR, LIBRARY_DIR, ROOT_DIR
+from app.config import BACKUPS_DIR, BRIEFING_DIR, DATA_DIR, LIBRARY_DIR, ROOT_DIR
 from app.db import engine
 
 FORMAT = "newscast-backup"
 FORMAT_VERSION = 1
+CACHE_DIR = DATA_DIR / "cache"
 
 
 def _timestamp() -> str:
@@ -38,6 +39,36 @@ def _checkpoint_db() -> Path | None:
     return db_path
 
 
+def _add_tree(archive: zipfile.ZipFile, root: Path, prefix: str) -> None:
+    if not root.exists():
+        return
+    for path in root.rglob("*"):
+        if path.is_file():
+            archive.write(path, Path(prefix) / path.relative_to(root))
+
+
+def _clear_tree(root: Path) -> None:
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        if child.is_file():
+            child.unlink()
+        elif child.is_dir():
+            shutil.rmtree(child)
+
+
+def _restore_tree(archive: zipfile.ZipFile, names: set[str], prefix: str, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    _clear_tree(dest)
+    lead = f"{prefix}/"
+    for name in names:
+        if not name.startswith(lead) or name.endswith("/"):
+            continue
+        target = dest / name[len(lead) :]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(archive.read(name))
+
+
 def write_backup(dest: Path | None = None) -> Path:
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     dest = dest or (BACKUPS_DIR / f"newscast-backup-{_timestamp()}.zip")
@@ -56,10 +87,9 @@ def write_backup(dest: Path | None = None) -> Path:
         env_path = ROOT_DIR / ".env"
         if env_path.exists():
             archive.write(env_path, ".env")
-        if LIBRARY_DIR.exists():
-            for path in LIBRARY_DIR.rglob("*"):
-                if path.is_file():
-                    archive.write(path, Path("library") / path.relative_to(LIBRARY_DIR))
+        _add_tree(archive, LIBRARY_DIR, "library")
+        _add_tree(archive, BRIEFING_DIR, "briefings")
+        _add_tree(archive, CACHE_DIR, "cache")
     return dest
 
 
@@ -93,6 +123,8 @@ def restore_backup(payload: bytes | Path) -> None:
             raise ValueError("Backup is missing the database.")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+        BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
         try:
             engine.dispose()
         except Exception:
@@ -104,15 +136,8 @@ def restore_backup(payload: bytes | Path) -> None:
                 stale.unlink()
         if ".env" in names:
             (ROOT_DIR / ".env").write_bytes(archive.read(".env"))
-        if LIBRARY_DIR.exists():
-            for child in LIBRARY_DIR.iterdir():
-                if child.is_file():
-                    child.unlink()
-                elif child.is_dir():
-                    shutil.rmtree(child)
-        for name in names:
-            if not name.startswith("library/") or name.endswith("/"):
-                continue
-            target = LIBRARY_DIR / name[len("library/") :]
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(archive.read(name))
+        _restore_tree(archive, names, "library", LIBRARY_DIR)
+        if any(name.startswith("briefings/") for name in names):
+            _restore_tree(archive, names, "briefings", BRIEFING_DIR)
+        if any(name.startswith("cache/") for name in names):
+            _restore_tree(archive, names, "cache", CACHE_DIR)

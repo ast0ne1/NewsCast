@@ -38,7 +38,7 @@ def test_publish_writes_only_enabled_category_papers(tmp_path: Path, monkeypatch
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     monkeypatch.setattr("app.services.briefing.utcnow", lambda: datetime(2026, 9, 15, tzinfo=timezone.utc))
     monkeypatch.setattr("app.services.briefing.env.story_retention_days", 7)
-    monkeypatch.setattr("app.services.briefing.enqueue_latest_briefing", lambda db: None)
+    monkeypatch.setattr("app.services.briefing.enqueue_latest_briefing", lambda db, **_kwargs: None)
     db = _session()
     seed_builtin_categories(db)
     settings.set_value(db, "briefing_publish_at", "06:30")
@@ -83,11 +83,11 @@ def test_publish_writes_only_enabled_category_papers(tmp_path: Path, monkeypatch
     db.commit()
 
     publish_daily_briefing(db, now=now, overwrite=True)
-    main = tmp_path / "news-2026-09-15.epub"
-    tech = tmp_path / "news-2026-09-15-technology.epub"
+    main = tmp_path / "1" / "news-2026-09-15.epub"
+    tech = tmp_path / "1" / "news-2026-09-15-technology.epub"
     assert main.exists()
     assert tech.exists()
-    assert not (tmp_path / "news-2026-09-15-news.epub").exists()
+    assert not (tmp_path / "1" / "news-2026-09-15-news.epub").exists()
     assert _epub_title(main) == "My Morning Paper - 15-09-2026"
     assert _epub_title(tech) == "Tech - 15-09-2026"
     assert "·" not in _epub_title(tech)
@@ -103,8 +103,10 @@ def test_opds_lists_categories_section(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings.env, "public_base_url", "http://127.0.0.1:8080")
     monkeypatch.setattr(settings.env, "port", 8080)
     settings.set_value(db, "briefing_category_opds_keys", '["technology","news"]')
-    (tmp_path / "news-2026-09-15-technology.epub").write_bytes(b"PK tech")
-    (tmp_path / "news-2026-09-15-news.epub").write_bytes(b"PK news")
+    root = tmp_path / "1"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "news-2026-09-15-technology.epub").write_bytes(b"PK tech")
+    (root / "news-2026-09-15-news.epub").write_bytes(b"PK news")
 
     root = opds.navigation_feed(db)
     assert "/opds/categories" in root

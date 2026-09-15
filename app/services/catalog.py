@@ -4,7 +4,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import env
-from app.models import Feed
+from app.models import CatalogApproval, Feed
 from app.services.categories import BUILTIN_LABELS, category_labels
 from app.services.favicon import src_for_feed, src_for_url
 from app.services.packages import package_catalog_items
@@ -45,10 +45,34 @@ def load_catalog() -> list[dict]:
     return items
 
 
+def approved_catalog_ids(db: Session) -> set[str]:
+    rows = db.query(CatalogApproval).filter(CatalogApproval.approved.is_(True)).all()
+    return {row.catalog_id for row in rows}
+
+
+def is_catalog_approved(db: Session, catalog_id: str) -> bool:
+    row = db.get(CatalogApproval, catalog_id)
+    return bool(row and row.approved)
+
+
+def set_catalog_approvals(db: Session, catalog_ids: set[str] | list[str]) -> None:
+    wanted = {cid.strip() for cid in catalog_ids if (cid or "").strip()}
+    existing = {row.catalog_id: row for row in db.query(CatalogApproval).all()}
+    for catalog_id, row in existing.items():
+        row.approved = catalog_id in wanted
+    for catalog_id in wanted:
+        if catalog_id not in existing:
+            db.add(CatalogApproval(catalog_id=catalog_id, approved=True))
+    db.commit()
+
+
 def seed_recommended_feeds(db: Session) -> None:
     if not env.seed_recommended_feeds:
         return
-    existing = db.query(Feed).all()
+    from app.services.users import ensure_admin_user
+
+    admin = ensure_admin_user(db)
+    existing = db.query(Feed).filter(Feed.user_id == admin.id).all()
     by_catalog = {feed.catalog_id: feed for feed in existing if feed.catalog_id}
     used_urls = {feed.url for feed in existing}
     changed = False
@@ -75,6 +99,7 @@ def seed_recommended_feeds(db: Session) -> None:
             continue
         db.add(
             Feed(
+                user_id=admin.id,
                 catalog_id=item["id"],
                 name=item["name"],
                 url=item["url"],
@@ -91,13 +116,24 @@ def seed_recommended_feeds(db: Session) -> None:
         db.commit()
 
 
-def catalog_with_status(db: Session) -> list[dict]:
-    feeds = db.query(Feed).all()
+def catalog_with_status(
+    db: Session,
+    *,
+    user_id: int | None = None,
+    approved_only: bool = False,
+) -> list[dict]:
+    query = db.query(Feed)
+    if user_id is not None:
+        query = query.filter(Feed.user_id == user_id)
+    feeds = query.all()
     by_catalog = {feed.catalog_id: feed for feed in feeds if feed.catalog_id}
     by_url = {feed.url: feed for feed in feeds}
+    approved = approved_catalog_ids(db)
     items = []
     labels = category_labels(db)
     for item in load_catalog():
+        if approved_only and item["id"] not in approved:
+            continue
         existing = by_catalog.get(item["id"]) or by_url.get(item["url"])
         added = bool(existing and existing.enabled)
         items.append(
@@ -109,14 +145,20 @@ def catalog_with_status(db: Session) -> list[dict]:
                 "added": added,
                 "feed_id": existing.id if existing else None,
                 "favicon": (src_for_feed(existing) if existing else None) or src_for_url(item["url"]),
+                "approved": item["id"] in approved,
             }
         )
     return items
 
 
-def grouped_catalog(db: Session) -> dict[str, list[dict]]:
+def grouped_catalog(
+    db: Session,
+    *,
+    user_id: int | None = None,
+    approved_only: bool = False,
+) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
-    for item in catalog_with_status(db):
+    for item in catalog_with_status(db, user_id=user_id, approved_only=approved_only):
         grouped.setdefault(item["category"], []).append(item)
     return grouped
 

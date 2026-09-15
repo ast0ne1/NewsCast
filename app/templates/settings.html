@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_filter_icon.html" import filter_icon %}
+{% from "_icons.html" import icon %}
 {% block title %}Settings · NewsCast{% endblock %}
 {% block content %}
 <section class="hero">
@@ -45,6 +46,7 @@
       </div>
     </div>
 
+    {% if is_admin %}
     <div class="card stack">
       <h2>Admin access</h2>
       <label>
@@ -95,8 +97,25 @@
         <input type="text" name="instance_name" value="{{ instance_name }}" autocomplete="off" placeholder="Home or Work" />
       </label>
       <p class="hint">Shown on the reader briefing so you can tell this copy from another. The reader talks to one NewsCast at a time — point it at this machine’s URL, or at your other copy.</p>
+      <label class="check">
+        <input type="checkbox" name="https_enabled" value="1" {% if https_enabled %}checked{% endif %} />
+        Require HTTPS on the LAN (reverse proxy / Caddy)
+      </label>
+      <p class="hint">Off by default. Turn on only after Caddy (or another TLS proxy) is in front of NewsCast. Session cookies become Secure and share links use https.</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    {% endif %}
+    <div class="card stack">
+      <label>
+        {{ t("Interface language") }}
+        <select name="ui_lang">
+          {% for value, label in ui_lang_choices %}
+          <option value="{{ value }}" {% if ui_lang == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">{{ t("App chrome language (separate from Translate into).") }}</p>
+    </div>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
 
   <div class="stack settings-panel" id="settings-panel-publication" role="tabpanel" data-settings-panel="publication" aria-labelledby="settings-tab-publication"{% if settings_tab != 'publication' %} hidden{% endif %}>
@@ -195,9 +214,10 @@
         {% endfor %}
       </div>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
 
+  {% if is_admin %}
   <div class="stack settings-panel" id="settings-panel-schedule" role="tabpanel" data-settings-panel="schedule" aria-labelledby="settings-tab-schedule"{% if settings_tab != 'schedule' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Refresh schedule</h2>
@@ -232,8 +252,9 @@
       <p class="hint">Local time on this machine. After this time NewsCast writes today’s dated EPUB and keeps about a week of papers.</p>
       <p class="hint">{{ delivery.hint }}</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
+  {% endif %}
 
   <div class="stack settings-panel" id="settings-panel-filters" role="tabpanel" data-settings-panel="filters" aria-labelledby="settings-tab-filters"{% if settings_tab != 'filters' %} hidden{% endif %}>
     <div class="card stack">
@@ -248,7 +269,7 @@
       </label>
       <p class="hint">Comma-separated. Exclude wins. If include words are set, a story must match one of them. Each feed can add more words on Feeds. Favourites and Saved long-reads always stay.</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
 
   <div class="stack settings-panel" id="settings-panel-translation" role="tabpanel" data-settings-panel="translation" aria-labelledby="settings-tab-translation"{% if settings_tab != 'translation' %} hidden{% endif %}>
@@ -263,6 +284,7 @@
         </select>
       </label>
       <p class="hint">Feeds marked Translate land in this language. Default is English.</p>
+      {% if is_admin %}
       <label>
         Global provider
         <select name="translate_provider">
@@ -273,10 +295,14 @@
       </label>
       <p class="hint">Used when a feed is set to Translate (use global setting). Google uses the free web API with a Chrome fallback when rate-limited. LLM uses the provider and model on the LLM tab.</p>
       <p class="hint">Each feed can still choose As published, follow this global setting, force Google, or force LLM under Feeds → Schedule &amp; filters.</p>
+      {% else %}
+      <p class="hint">The household admin chooses Google or LLM for Translate feeds. You only set the target language here.</p>
+      {% endif %}
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
 
+  {% if is_admin %}
   <div class="stack settings-panel" id="settings-panel-llm" role="tabpanel" data-settings-panel="llm" aria-labelledby="settings-tab-llm"{% if settings_tab != 'llm' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Summaries</h2>
@@ -333,8 +359,9 @@
         <button class="btn btn-secondary" type="button" data-load-ollama>Load from Ollama</button>
       </div>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
+  {% endif %}
 
   <div class="stack settings-panel" id="settings-panel-reader" role="tabpanel" data-settings-panel="reader" aria-labelledby="settings-tab-reader"{% if settings_tab != 'reader' %} hidden{% endif %}>
     <div class="card stack">
@@ -420,9 +447,10 @@
       <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
       <p class="hint">{{ delivery.hint }}</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
 
+  {% if can_use_ntfy %}
   <div class="stack settings-panel" id="settings-panel-notifications" role="tabpanel" data-settings-panel="notifications" aria-labelledby="settings-tab-notifications"{% if settings_tab != 'notifications' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Connection</h2>
@@ -430,11 +458,16 @@
         <input type="checkbox" name="ntfy_enabled" value="1" {% if ntfy_enabled %}checked{% endif %} />
         Send phone alerts via ntfy
       </label>
-      <p class="hint">Configure below, then turn this on. Nothing is sent while alerts are off. Install the ntfy app and subscribe to the same topic.</p>
+      <p class="hint">Configure below, then turn this on. Nothing is sent while alerts are off. Install the ntfy app and subscribe to the same topic. Each household member has their own topic; blank server uses the household default ({{ ntfy_household_server }}).</p>
       <label>
         Server
-        <input type="text" name="ntfy_server" value="{{ ntfy_server }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://ntfy.sh" />
+        <input type="text" name="ntfy_server" value="{{ ntfy_server }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="{{ ntfy_household_server }}" />
       </label>
+      {% if session_role == 'admin' %}
+      <p class="hint">As admin, the server you save becomes the household default. Leave topic/token as your own alerts.</p>
+      {% else %}
+      <p class="hint">Leave server blank (or matching the household default) to use {{ ntfy_household_server }}.</p>
+      {% endif %}
       <label>
         Topic
         <input type="text" name="ntfy_topic" value="{{ ntfy_topic }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="your-hard-to-guess-topic" />
@@ -465,9 +498,11 @@
       </label>
       <p class="hint">OPDS-only downloads are not tracked. Use the publish alert if you never push.</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
+  {% endif %}
 
+  {% if is_admin %}
   <div class="stack settings-panel" id="settings-panel-update-form" role="tabpanel" data-settings-panel="update" aria-labelledby="settings-tab-update"{% if settings_tab != 'update' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Updates</h2>
@@ -490,9 +525,192 @@
       {% endif %}
       <p class="hint">Save the repository, then use Check for updates below. Install validates the zip and makes a backup first. Code is replaced; your data folder and .env stay put.</p>
     </div>
-    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+    <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
   </div>
+  {% endif %}
 </form>
+
+{% if is_admin %}
+<div class="stack settings-panel" id="settings-panel-users" role="tabpanel" data-settings-panel="users" aria-labelledby="settings-tab-users"{% if settings_tab != 'users' %} hidden{% endif %}>
+  <div class="card stack">
+    <h2>People</h2>
+    <p class="lede">Each person keeps their own feeds, papers, library, and reader catalog. You control what they can change.</p>
+    {% if users_notice %}
+    <p class="hint users-notice" role="status">{{ users_notice }}</p>
+    <script>
+      try {
+        sessionStorage.setItem("newscast-toast", JSON.stringify({ message: {{ users_notice|tojson }}, kind: "ok" }));
+      } catch (e) {}
+    </script>
+    {% endif %}
+  </div>
+
+  {% if login_qr_user and login_qr_svg %}
+  <div class="card stack user-qr-card" id="login-qr">
+    <div class="user-card-head">
+      <div class="user-card-meta">
+        <h2 class="user-card-name">Login QR for {{ login_qr_user }}</h2>
+        <p class="hint">Scan once on their phone. The link expires and can only be used once.</p>
+      </div>
+      <button type="button" class="btn btn-ghost" data-dismiss-login-qr>Hide</button>
+    </div>
+    <div class="qr-frame" aria-hidden="true">{{ login_qr_svg | safe }}</div>
+    <p class="hint"><a class="text-link url-break" href="{{ login_qr_url }}">{{ login_qr_url }}</a></p>
+  </div>
+  <script>
+    try {
+      history.replaceState(null, "", "/settings?tab=users");
+      document.getElementById("login-qr")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (e) {}
+  </script>
+  {% endif %}
+
+  <div class="user-cards">
+    {% for user in household_users %}
+    <article class="card stack user-card{% if not user.active %} is-inactive{% endif %}">
+      <div class="user-card-head">
+        <div class="user-avatar" aria-hidden="true">{{ user.username[:1]|upper }}</div>
+        <div class="user-card-meta">
+          <h3 class="user-card-name">{{ user.username }}</h3>
+          <div class="user-card-chips">
+            {% if user.role == 'admin' %}
+            <span class="chip">Admin</span>
+            {% else %}
+            <span class="chip chip-quiet">User</span>
+            {% endif %}
+            {% if user.active %}
+            <span class="chip chip-quiet">Active</span>
+            {% else %}
+            <span class="chip chip-health-error">Inactive</span>
+            {% endif %}
+            {% if user.role != 'admin' and user.can_add_custom_sources %}
+            <span class="chip chip-quiet">Custom feeds</span>
+            {% endif %}
+            {% if user.role == 'admin' or user.can_use_ntfy %}
+            <span class="chip chip-quiet">Phone alerts</span>
+            {% endif %}
+          </div>
+        </div>
+        <form method="post" action="/settings/users/{{ user.id }}/qr" data-native>
+          <button class="btn btn-secondary" type="submit">Show login QR</button>
+        </form>
+      </div>
+
+      {% if user.role == 'admin' %}
+      <p class="hint">Admin accounts always have custom feeds and phone alerts. Change the admin username or password under General.</p>
+      {% else %}
+      <form method="post" action="/settings/users/{{ user.id }}" class="stack user-edit-form" autocomplete="off">
+        <fieldset class="user-fieldset">
+          <legend>Access</legend>
+          <label class="check">
+            <input type="checkbox" name="can_add_custom_sources" value="1" {% if user.can_add_custom_sources %}checked{% endif %} />
+            <span>
+              Custom feed URLs
+              <span class="user-perm-hint">Let them paste RSS/Atom URLs on Feeds and Catalog. Off by default.</span>
+            </span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="can_use_ntfy" value="1" {% if user.can_use_ntfy %}checked{% endif %} />
+            <span>
+              Phone alerts (ntfy)
+              <span class="user-perm-hint">Shows a Notifications tab so they can set their own topic. Off by default.</span>
+            </span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="active" value="1" {% if user.active %}checked{% endif %} />
+            <span>
+              Account active
+              <span class="user-perm-hint">Inactive users cannot sign in. Their feeds and papers stay on disk.</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <fieldset class="user-fieldset">
+          <legend>Reset password</legend>
+          <p class="hint">Leave blank to keep the current password.</p>
+          <label>
+            New password
+            <span class="password-field">
+              <input type="password" name="new_password" autocomplete="new-password" />
+              <button type="button" class="icon-btn icon-btn-quiet password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+                <svg data-icon-show viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                <svg data-icon-hide hidden viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg>
+              </button>
+            </span>
+          </label>
+          <label>
+            Confirm new password
+            <span class="password-field">
+              <input type="password" name="new_password_confirm" autocomplete="new-password" />
+              <button type="button" class="icon-btn icon-btn-quiet password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+                <svg data-icon-show viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+                <svg data-icon-hide hidden viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg>
+              </button>
+            </span>
+          </label>
+        </fieldset>
+
+        <button class="btn btn-primary" type="submit">Save {{ user.username }}</button>
+      </form>
+      <form
+        method="post"
+        action="/settings/users/{{ user.id }}/delete"
+        data-confirm="Remove {{ user.username }}?"
+        data-confirm-detail="Their feeds, stories, papers, and Send files will be deleted. This cannot be undone."
+        data-confirm-ok="Remove account"
+      >
+        <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("trash") }} Remove account</button>
+      </form>
+      {% endif %}
+    </article>
+    {% else %}
+    <div class="card stack">
+      <p class="hint">No accounts yet. Create the first household member below.</p>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card stack">
+    <h2>Add someone</h2>
+    <p class="hint">They sign in with this username. You can change permissions later on their card.</p>
+    <form method="post" action="/settings/users" class="stack user-create-form" autocomplete="off" data-native>
+      <div class="user-create-grid">
+        <label>
+          Username
+          <input type="text" name="username" autocomplete="off" required />
+        </label>
+        <label>
+          Password
+          <span class="password-field">
+            <input type="password" name="password" autocomplete="new-password" required />
+            <button type="button" class="icon-btn icon-btn-quiet password-toggle" data-password-toggle aria-label="Show password" title="Show password">
+              <svg data-icon-show viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></svg>
+              <svg data-icon-hide hidden viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg>
+            </button>
+          </span>
+        </label>
+      </div>
+      <fieldset class="user-fieldset">
+        <legend>Starting access</legend>
+        <label class="check">
+          <input type="checkbox" name="can_add_custom_sources" value="1" />
+          <span>
+            Custom feed URLs
+            <span class="user-perm-hint">Optional. Most people only need the approved Catalog list.</span>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="can_use_ntfy" value="1" />
+          <span>
+            Phone alerts (ntfy)
+            <span class="user-perm-hint">Optional. They configure their own topic after you enable this.</span>
+          </span>
+        </label>
+      </fieldset>
+      <button class="btn btn-primary" type="submit">Create account</button>
+    </form>
+  </div>
+</div>
 
 <div class="stack settings-panel" id="settings-panel-backup" role="tabpanel" data-settings-panel="backup" aria-labelledby="settings-tab-backup"{% if settings_tab != 'backup' %} hidden{% endif %}>
   <div class="card stack">
@@ -528,6 +746,7 @@
     {% endif %}
   </div>
 </div>
+{% endif %}
 
 <div class="stack settings-panel" id="settings-panel-categories" role="tabpanel" data-settings-panel="categories" aria-labelledby="settings-tab-categories"{% if settings_tab != 'categories' %} hidden{% endif %}>
   <div class="card stack">
@@ -567,6 +786,7 @@
   </div>
 </div>
 
+{% if is_admin %}
 <div class="stack settings-panel" id="settings-panel-catalog" role="tabpanel" data-settings-panel="catalog" aria-labelledby="settings-tab-catalog"{% if settings_tab != 'catalog' %} hidden{% endif %}>
   <div class="card stack">
     <h2>Packages</h2>
@@ -592,13 +812,35 @@
       </form>
     </div>
   </div>
+  {% if session_role == 'admin' %}
+  <div class="card stack">
+    <h2>Approved for user viewing</h2>
+    <p class="hint">Non-admin users only see and can Add sources you tick here. You still see the full Catalog.</p>
+    <form method="post" action="/settings/catalog/approvals" class="stack">
+      <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost" data-check-set="catalog-approvals" data-check-value="1">Select all</button>
+        <button type="button" class="btn btn-ghost" data-check-set="catalog-approvals" data-check-value="0">Unselect all</button>
+      </div>
+      <div class="category-opds-grid" data-check-group="catalog-approvals">
+        {% for item in catalog_for_approval %}
+        <label class="check">
+          <input type="checkbox" name="approve_{{ item.id }}" value="1" {% if item.approved %}checked{% endif %} />
+          {{ item.name }}
+        </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary" type="submit">Save approvals</button>
+    </form>
+  </div>
+  {% endif %}
 </div>
+{% endif %}
 
 <div class="stack settings-panel" id="settings-panel-about" role="tabpanel" data-settings-panel="about" aria-labelledby="settings-tab-about"{% if settings_tab != 'about' %} hidden{% endif %}>
   <div class="card stack about-card">
     <h2>About</h2>
     <p class="lede">NewsCast fetches the sources you choose, writes a short daily briefing, and sends it to an e-reader. It runs on a home Pi or a Windows machine on your LAN.</p>
-    <p class="hint">Author: {{ app_author or "Adam Stone" }}</p>
+    <p class="hint">GitHub: <a class="text-link" href="{{ app_github }}" rel="noopener noreferrer" target="_blank">{{ app_github }}</a></p>
     <p class="hint">Version: {{ app_version }}</p>
   </div>
 </div>

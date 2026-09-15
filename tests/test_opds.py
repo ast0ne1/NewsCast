@@ -56,8 +56,10 @@ def test_briefing_feed_lists_existing_papers_newest_first(tmp_path: Path, monkey
     _prep(monkeypatch, db)
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
-    (tmp_path / "news-2026-09-14.epub").write_bytes(b"PK today")
-    (tmp_path / "news-2026-09-13.epub").write_bytes(b"PK yesterday")
+    root = tmp_path / "1"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "news-2026-09-14.epub").write_bytes(b"PK today")
+    (root / "news-2026-09-13.epub").write_bytes(b"PK yesterday")
     settings.set_value(db, "instance_name", "Work")
     xml = opds.briefing_feed(db)
     assert "<title>Daily Briefings</title>" in xml
@@ -76,7 +78,9 @@ def test_briefing_feed_omits_missing_yesterday(tmp_path: Path, monkeypatch):
     _prep(monkeypatch, db)
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
-    (tmp_path / "news-2026-09-14.epub").write_bytes(b"PK today")
+    root = tmp_path / "1"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "news-2026-09-14.epub").write_bytes(b"PK today")
     xml = opds.briefing_feed(db)
     assert "/api/x3/papers/2026-09-14/" in xml
     assert "2026-09-13" not in xml

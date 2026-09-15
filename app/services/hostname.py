@@ -22,14 +22,27 @@ def valid_hostname(name: str) -> bool:
     return bool(name) and HOSTNAME_RE.fullmatch(name) is not None
 
 
+def _scheme(db: Session) -> str:
+    return "https" if settings.https_enabled(db) else "http"
+
+
+def _host_url(db: Session, host: str) -> str:
+    scheme = _scheme(db)
+    if scheme == "https":
+        return f"{scheme}://{host}.local"
+    return f"{scheme}://{host}.local:{env.port}"
+
+
 def get_public_base_url(db: Session) -> str:
     host = normalize_hostname(settings.get_value(db, "device_hostname"))
     if host:
-        return f"http://{host}.local:{env.port}"
+        return _host_url(db, host)
     public = env.public_base_url.rstrip("/")
     if public and not _is_loopback(public):
+        if settings.https_enabled(db) and public.startswith("http://"):
+            return "https://" + public[len("http://") :]
         return public
-    return get_lan_url()
+    return get_lan_url(db)
 
 
 def get_lan_ip() -> str:
@@ -53,21 +66,26 @@ def _is_loopback(url: str) -> bool:
     return host in {"127.0.0.1", "localhost", "::1"}
 
 
-def get_lan_url() -> str:
+def get_lan_url(db: Session | None = None) -> str:
+    scheme = _scheme(db) if db is not None else "http"
     ip = get_lan_ip()
     if ip:
-        return f"http://{ip}:{env.port}"
+        if scheme == "https":
+            return f"{scheme}://{ip}"
+        return f"{scheme}://{ip}:{env.port}"
     public = env.public_base_url.rstrip("/")
     if public and not _is_loopback(public):
         return public
+    if scheme == "https":
+        return "https://127.0.0.1"
     return f"http://127.0.0.1:{env.port}"
 
 
 def get_share_url(db: Session) -> str:
     host = normalize_hostname(settings.get_value(db, "device_hostname"))
     if host:
-        return f"http://{host}.local:{env.port}"
-    return get_lan_url()
+        return _host_url(db, host)
+    return get_lan_url(db)
 
 
 def homescreen_name(db: Session) -> str:

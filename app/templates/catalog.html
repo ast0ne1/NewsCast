@@ -7,10 +7,12 @@
     <h1>Catalog</h1>
     <p class="lede">Browse this library and tap Add or Remove. Sources marked Translate are rewritten into your target language before they reach the briefing. Use the plus button only for a source that is not listed. Import and export packages under Settings → Catalog.</p>
   </div>
+  {% if can_add_custom_sources %}
   <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
     <span>Add custom</span>
   </button>
+  {% endif %}
 </section>
 
 <div data-filter-root>
@@ -98,6 +100,8 @@
 </div>
 </div>
 
+{% if can_add_custom_sources %}
 {% set source_next = "/catalog" %}
 {% include "_source_sheet.html" %}
+{% endif %}
 {% endblock %}

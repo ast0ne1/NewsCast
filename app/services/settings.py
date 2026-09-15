@@ -106,6 +106,8 @@ UI_KEYS = (
     "ollama_base_url",
     "ollama_model",
     "instance_name",
+    "https_enabled",
+    "ui_lang",
     "x3_sync_token",
     "x3_catalog_login",
     "x3_catalog_username",
@@ -146,6 +148,12 @@ UI_KEYS = (
     "ntfy_last_publish_notified_day",
     "ntfy_last_push_notified_day",
 )
+
+UI_LANG_CHOICES = [
+    ("en", "English"),
+    ("es", "Spanish"),
+]
+DEFAULT_UI_LANG = "en"
 
 
 def _env_value(key: str) -> str:
@@ -218,8 +226,11 @@ def _default_value(key: str) -> str:
         "ntfy_enabled",
         "ntfy_notify_on_publish",
         "ntfy_notify_on_push",
+        "https_enabled",
     }:
         return "0"
+    if key == "ui_lang":
+        return DEFAULT_UI_LANG
     return ""
 
 
@@ -443,9 +454,41 @@ def get_admin_credentials(db: Session) -> tuple[str, str]:
     return get_value(db, "admin_username"), get_value(db, "admin_password")
 
 
+def https_enabled(db: Session) -> bool:
+    return flag_enabled(db, "https_enabled")
+
+
+def ui_lang(db: Session) -> str:
+    value = (get_value(db, "ui_lang") or DEFAULT_UI_LANG).strip().lower()
+    allowed = {code for code, _label in UI_LANG_CHOICES}
+    return value if value in allowed else DEFAULT_UI_LANG
+
+
+def resolve_ui_lang(db: Session, user_id: int | None = None) -> str:
+    """Prefer per-user ui_lang when set; otherwise the instance General value."""
+    allowed = {code for code, _label in UI_LANG_CHOICES}
+    if user_id is not None:
+        from app.models import User
+        from app.services import user_settings as user_settings_service
+
+        raw = user_settings_service.get_value(db, user_id, "ui_lang", default="").strip().lower()
+        if raw in allowed:
+            return raw
+        user = db.get(User, user_id)
+        if user is not None and user.ui_lang:
+            column = user.ui_lang.strip().lower()
+            if column in allowed:
+                return column
+    return ui_lang(db)
+
+
 def using_factory_admin(db: Session) -> bool:
+    from app.services import passwords
+
     username, password = get_admin_credentials(db)
-    return username == DEFAULT_ADMIN_USERNAME and password == DEFAULT_ADMIN_PASSWORD
+    if username != DEFAULT_ADMIN_USERNAME:
+        return False
+    return passwords.verify_password(password, DEFAULT_ADMIN_PASSWORD)
 
 
 def normalize_provider(value: str) -> str:

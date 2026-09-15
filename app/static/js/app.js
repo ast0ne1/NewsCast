@@ -1,3 +1,7 @@
+function t(k) {
+  return (window.NEWSCAST_I18N && window.NEWSCAST_I18N[k]) || k;
+}
+
 function syncTopbarHeight() {
   const topbar = document.querySelector(".topbar");
   if (!topbar) return;
@@ -143,9 +147,9 @@ function applyIngestStatus(data) {
     pill.classList.toggle("is-busy", running);
     pill.classList.toggle("is-error", !running && Boolean(data.last_error));
     if (running) {
-      pill.textContent = data.progress ? `Refreshing ${data.progress}` : "Refreshing";
+      pill.textContent = data.progress ? `${t("Refreshing")} ${data.progress}` : t("Refreshing");
     } else {
-      pill.textContent = data.last_error ? "Error" : "Idle";
+      pill.textContent = data.last_error ? t("Error") : t("Idle");
     }
   }
   if (refreshBtn) {
@@ -192,7 +196,7 @@ function askConfirm({ title, body, okLabel }) {
       bodyEl.hidden = !body;
       bodyEl.textContent = body || "";
     }
-    if (okBtn) okBtn.textContent = okLabel || "Remove";
+    if (okBtn) okBtn.textContent = okLabel || t("Remove");
     const finish = (value) => {
       sheet.hidden = true;
       sheet.classList.remove("is-open");
@@ -237,7 +241,7 @@ document.querySelectorAll("form").forEach((form) => {
       const ok = await askConfirm({
         title: form.dataset.confirm,
         body: form.dataset.confirmDetail || "",
-        okLabel: form.dataset.confirmOk || "Remove",
+        okLabel: form.dataset.confirmOk || t("Remove"),
       });
       if (!ok) return;
     }
@@ -636,6 +640,22 @@ if (settingsRoot) {
     });
   });
 }
+
+document.querySelectorAll("[data-dismiss-login-qr]").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.getElementById("login-qr")?.remove();
+  });
+});
+
+document.querySelectorAll("[data-check-set]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const group = button.dataset.checkSet;
+    const on = button.dataset.checkValue !== "0";
+    document.querySelectorAll(`[data-check-group="${group}"] input[type="checkbox"]`).forEach((input) => {
+      input.checked = on;
+    });
+  });
+});
 
 document.querySelectorAll("[data-password-toggle]").forEach((button) => {
   const input = button.closest(".password-field")?.querySelector("input");

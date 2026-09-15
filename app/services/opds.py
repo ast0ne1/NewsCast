@@ -84,11 +84,19 @@ def _link(
     return el
 
 
-def _paper_href(base: str, day: date, *, filename: str, category: str = "") -> str:
+def _scope_prefix(username: str | None) -> tuple[str, str]:
+    """Return (opds_prefix, x3_prefix) for legacy or per-user mounts."""
+    if username:
+        safe = quote(username, safe="")
+        return f"/opds/u/{safe}", f"/api/x3/u/{safe}"
+    return "/opds", "/api/x3"
+
+
+def _paper_href(base: str, day: date, *, filename: str, category: str = "", x3_prefix: str = "/api/x3") -> str:
     name = quote(filename)
     if category:
-        return f"{base}/api/x3/papers/{day.isoformat()}/category/{quote(category)}/{name}"
-    return f"{base}/api/x3/papers/{day.isoformat()}/{name}"
+        return f"{base}{x3_prefix}/papers/{day.isoformat()}/category/{quote(category)}/{name}"
+    return f"{base}{x3_prefix}/papers/{day.isoformat()}/{name}"
 
 
 def _feed(*, title: str, feed_id: str, updated: str, self_href: str, start_href: str, kind: str) -> Element:
@@ -111,82 +119,91 @@ def _base(db: Session) -> str:
     return hostname.get_public_base_url(db).rstrip("/")
 
 
-def _opds_category_entries(db: Session) -> list[tuple[str, str]]:
+def _opds_category_entries(db: Session, user_id: int | None = None) -> list[tuple[str, str]]:
     labels = category_labels(db)
     enabled = settings.briefing_category_opds_keys(db)
-    present = set(category_keys_with_papers(days=2))
+    present = set(category_keys_with_papers(days=2, user_id=user_id))
     keys = enabled | present
     ordered = sorted(keys, key=lambda key: (labels.get(key) or BUILTIN_LABELS.get(key) or key).lower())
     return [(key, labels.get(key) or BUILTIN_LABELS.get(key) or key) for key in ordered]
 
 
-def navigation_feed(db: Session) -> str:
+def navigation_feed(db: Session, *, user_id: int | None = None, username: str | None = None) -> str:
     base = _base(db)
+    opds_prefix, _x3 = _scope_prefix(username)
     instance = settings.get_value(db, "instance_name")
     updated = atom_updated()
     feed = _feed(
         title=briefing_title(instance),
-        feed_id="urn:newscast:opds",
+        feed_id="urn:newscast:opds" + (f":u:{username}" if username else ""),
         updated=updated,
-        self_href=f"{base}/opds",
-        start_href=f"{base}/opds",
+        self_href=f"{base}{opds_prefix}",
+        start_href=f"{base}{opds_prefix}",
         kind="navigation",
     )
     briefing = SubElement(feed, "entry")
     _text(briefing, "id", "urn:newscast:opds:briefing")
     _text(briefing, "title", "Daily Briefings")
     _text(briefing, "updated", updated)
-    _link(briefing, rel="subsection", href=f"{base}/opds/briefing", type_=ACQ_TYPE)
+    _link(briefing, rel="subsection", href=f"{base}{opds_prefix}/briefing", type_=ACQ_TYPE)
 
-    if _opds_category_entries(db):
+    if _opds_category_entries(db, user_id=user_id):
         categories = SubElement(feed, "entry")
         _text(categories, "id", "urn:newscast:opds:categories")
         _text(categories, "title", "Categories")
         _text(categories, "updated", updated)
-        _link(categories, rel="subsection", href=f"{base}/opds/categories", type_=NAV_TYPE)
+        _link(categories, rel="subsection", href=f"{base}{opds_prefix}/categories", type_=NAV_TYPE)
 
     library = SubElement(feed, "entry")
     _text(library, "id", "urn:newscast:opds:library")
     _text(library, "title", "Library")
     _text(library, "updated", updated)
-    _link(library, rel="subsection", href=f"{base}/opds/library", type_=ACQ_TYPE)
+    _link(library, rel="subsection", href=f"{base}{opds_prefix}/library", type_=ACQ_TYPE)
     return _xml(feed)
 
 
-def categories_feed(db: Session) -> str:
+def categories_feed(db: Session, *, user_id: int | None = None, username: str | None = None) -> str:
     base = _base(db)
+    opds_prefix, _x3 = _scope_prefix(username)
     updated = atom_updated()
     feed = _feed(
         title="Categories",
         feed_id="urn:newscast:opds:categories",
         updated=updated,
-        self_href=f"{base}/opds/categories",
-        start_href=f"{base}/opds",
+        self_href=f"{base}{opds_prefix}/categories",
+        start_href=f"{base}{opds_prefix}",
         kind="navigation",
     )
-    for key, label in _opds_category_entries(db):
+    for key, label in _opds_category_entries(db, user_id=user_id):
         entry = SubElement(feed, "entry")
         _text(entry, "id", f"urn:newscast:opds:category:{key}")
         _text(entry, "title", label)
         _text(entry, "updated", updated)
-        _link(entry, rel="subsection", href=f"{base}/opds/categories/{quote(key)}", type_=ACQ_TYPE)
+        _link(entry, rel="subsection", href=f"{base}{opds_prefix}/categories/{quote(key)}", type_=ACQ_TYPE)
     return _xml(feed)
 
 
-def category_feed(db: Session, category: str) -> str:
+def category_feed(
+    db: Session,
+    category: str,
+    *,
+    user_id: int | None = None,
+    username: str | None = None,
+) -> str:
     base = _base(db)
+    opds_prefix, x3_prefix = _scope_prefix(username)
     key = slugify(category) or category.strip().lower()
     labels = category_labels(db)
     label = labels.get(key) or BUILTIN_LABELS.get(key) or key
-    papers = available_category_papers(key, days=2)
+    papers = available_category_papers(key, days=2, user_id=user_id)
     latest = datetime.combine(papers[0], datetime.min.time()) if papers else None
     updated = atom_updated(latest)
     feed = _feed(
         title=label,
         feed_id=f"urn:newscast:opds:category:{key}",
         updated=updated,
-        self_href=f"{base}/opds/categories/{quote(key)}",
-        start_href=f"{base}/opds",
+        self_href=f"{base}{opds_prefix}/categories/{quote(key)}",
+        start_href=f"{base}{opds_prefix}",
         kind="acquisition",
     )
     for day in papers:
@@ -199,24 +216,25 @@ def category_feed(db: Session, category: str) -> str:
         _link(
             entry,
             rel=ACQUISITION_REL,
-            href=_paper_href(base, day, filename=filename, category=key),
+            href=_paper_href(base, day, filename=filename, category=key, x3_prefix=x3_prefix),
             type_=EPUB_TYPE,
             title=title,
         )
     return _xml(feed)
 
 
-def briefing_feed(db: Session) -> str:
+def briefing_feed(db: Session, *, user_id: int | None = None, username: str | None = None) -> str:
     base = _base(db)
-    papers = available_daily_papers(days=2)
+    opds_prefix, x3_prefix = _scope_prefix(username)
+    papers = available_daily_papers(days=2, user_id=user_id)
     latest = datetime.combine(papers[0], datetime.min.time()) if papers else None
     updated = atom_updated(latest)
     feed = _feed(
         title="Daily Briefings",
         feed_id="urn:newscast:opds:briefing",
         updated=updated,
-        self_href=f"{base}/opds/briefing",
-        start_href=f"{base}/opds",
+        self_href=f"{base}{opds_prefix}/briefing",
+        start_href=f"{base}{opds_prefix}",
         kind="acquisition",
     )
     for day in papers:
@@ -229,24 +247,28 @@ def briefing_feed(db: Session) -> str:
         _link(
             entry,
             rel=ACQUISITION_REL,
-            href=_paper_href(base, day, filename=filename),
+            href=_paper_href(base, day, filename=filename, x3_prefix=x3_prefix),
             type_=EPUB_TYPE,
             title=title,
         )
     return _xml(feed)
 
 
-def library_feed(db: Session) -> str:
+def library_feed(db: Session, *, user_id: int | None = None, username: str | None = None) -> str:
     base = _base(db)
-    items = db.query(LibraryFile).order_by(LibraryFile.created_at.desc()).all()
+    opds_prefix, _x3 = _scope_prefix(username)
+    query = db.query(LibraryFile)
+    if user_id is not None:
+        query = query.filter(LibraryFile.user_id == user_id)
+    items = query.order_by(LibraryFile.created_at.desc()).all()
     latest = items[0].created_at if items else None
     updated = atom_updated(latest)
     feed = _feed(
         title="Library",
         feed_id="urn:newscast:opds:library",
         updated=updated,
-        self_href=f"{base}/opds/library",
-        start_href=f"{base}/opds",
+        self_href=f"{base}{opds_prefix}/library",
+        start_href=f"{base}{opds_prefix}",
         kind="acquisition",
     )
     for item in items:

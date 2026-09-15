@@ -86,7 +86,7 @@ def test_maybe_publish_waits_until_publish_at(tmp_path: Path, monkeypatch):
     _seed_story(db)
     settings.set_value(db, "briefing_publish_at", "06:30")
     assert maybe_publish_daily_briefing(db, now=datetime(2026, 9, 14, 6, 0)) is None
-    assert not (tmp_path / "news-2026-09-14.epub").exists()
+    assert not (tmp_path / "1" / "news-2026-09-14.epub").exists()
     path = maybe_publish_daily_briefing(db, now=datetime(2026, 9, 14, 6, 30))
     assert path is not None
     assert path.exists()
@@ -95,13 +95,15 @@ def test_maybe_publish_waits_until_publish_at(tmp_path: Path, monkeypatch):
 
 def test_prune_keeps_seven_dated_files(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    root = tmp_path / "1"
+    root.mkdir(parents=True, exist_ok=True)
     today = date(2026, 9, 14)
     for offset in range(8):
         day = today - timedelta(days=offset)
-        (tmp_path / f"news-{day.isoformat()}.epub").write_bytes(b"x")
-        (tmp_path / f"news-{day.isoformat()}.txt").write_text("x", encoding="utf-8")
+        (root / f"news-{day.isoformat()}.epub").write_bytes(b"x")
+        (root / f"news-{day.isoformat()}.txt").write_text("x", encoding="utf-8")
     assert prune_old_briefings(keep=7) == 1
-    remaining = {path.name for path in tmp_path.glob("*.epub")}
+    remaining = {path.name for path in root.glob("*.epub")}
     expected = {f"news-{(today - timedelta(days=offset)).isoformat()}.epub" for offset in range(7)}
     assert remaining == expected
 
@@ -110,7 +112,8 @@ def test_x3_serves_frozen_file_not_live_rebuild(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     db = _session()
     settings.set_value(db, "x3_catalog_login", "0")
-    frozen = tmp_path / "news-2026-09-14.epub"
+    frozen = tmp_path / "1" / "news-2026-09-14.epub"
+    frozen.parent.mkdir(parents=True, exist_ok=True)
     frozen.write_bytes(b"PK frozen-paper")
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
     client = _client(db)
@@ -123,7 +126,8 @@ def test_x3_serves_iso_day_with_dated_filename(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     db = _session()
     settings.set_value(db, "x3_catalog_login", "0")
-    target = tmp_path / "news-2026-09-13.epub"
+    target = tmp_path / "1" / "news-2026-09-13.epub"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"PK yesterday-paper")
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
     client = _client(db)
@@ -151,7 +155,8 @@ def test_x3_named_category_url_sets_category_filename(tmp_path: Path, monkeypatc
     settings.set_value(db, "reader_title_pattern", "NewsCast {date}")
     settings.set_value(db, "reader_category_title_pattern", "NewsCast {category} {date}")
     settings.set_value(db, "reader_date_format", "iso")
-    target = tmp_path / "news-2026-09-14-technology.epub"
+    target = tmp_path / "1" / "news-2026-09-14-technology.epub"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"PK tech-paper")
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
     client = _client(db)
@@ -169,7 +174,8 @@ def test_x3_legacy_category_query_still_works(tmp_path: Path, monkeypatch):
     settings.set_value(db, "x3_catalog_login", "0")
     settings.set_value(db, "reader_category_title_pattern", "NewsCast {category} {date}")
     settings.set_value(db, "reader_date_format", "iso")
-    target = tmp_path / "news-2026-09-14-technology.epub"
+    target = tmp_path / "1" / "news-2026-09-14-technology.epub"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"PK tech-paper")
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
     client = _client(db)
@@ -186,7 +192,9 @@ def test_paper_status_message(tmp_path: Path, monkeypatch):
     status = paper_status(db, now=now)
     assert status["published"] is False
     assert "not ready" in status["message"]
-    (tmp_path / "news-2026-09-14.epub").write_bytes(b"x")
+    paper = tmp_path / "1" / "news-2026-09-14.epub"
+    paper.parent.mkdir(parents=True, exist_ok=True)
+    paper.write_bytes(b"x")
     status = paper_status(db, now=now)
     assert status["published"] is True
     assert "published at 06:30" in status["message"]
