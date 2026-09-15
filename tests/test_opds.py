@@ -64,9 +64,11 @@ def test_briefing_feed_lists_existing_papers_newest_first(tmp_path: Path, monkey
     assert "NewsCast - Work 2026-09-14" in xml
     assert "NewsCast - Work 2026-09-13" in xml
     assert xml.index("2026-09-14") < xml.index("2026-09-13")
-    assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-14" in xml
-    assert "http://127.0.0.1:8080/api/x3/news.epub?day=2026-09-13" in xml
+    assert "/api/x3/papers/2026-09-14/" in xml
+    assert "/api/x3/papers/2026-09-13/" in xml
+    assert "NewsCast%20-%20Work%202026-09-14.epub" in xml
     assert "day=yesterday" not in xml
+    assert "news.epub?" not in xml
 
 
 def test_briefing_feed_omits_missing_yesterday(tmp_path: Path, monkeypatch):
@@ -76,7 +78,7 @@ def test_briefing_feed_omits_missing_yesterday(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
     (tmp_path / "news-2026-09-14.epub").write_bytes(b"PK today")
     xml = opds.briefing_feed(db)
-    assert "day=2026-09-14" in xml
+    assert "/api/x3/papers/2026-09-14/" in xml
     assert "2026-09-13" not in xml
 
 

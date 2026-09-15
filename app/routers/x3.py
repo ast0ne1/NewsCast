@@ -1,4 +1,6 @@
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -38,6 +40,13 @@ def _download_name(db: Session, path, key: str, suffix: str, category: str = "")
     return "newscast-news-yesterday.epub" if key == "yesterday" else f"newscast-news.{suffix}"
 
 
+def _response_filename(preferred: str | None, fallback: str) -> str:
+    name = Path(unquote(preferred or "")).name.strip()
+    if name.lower().endswith(".epub") and name.lower() not in {".epub", "epub"}:
+        return name
+    return fallback
+
+
 @router.get("/news")
 def x3_news(db: Annotated[Session, Depends(get_db)], day: str = "today"):
     return current_briefing_payload(db, day=_day_key(day))
@@ -65,4 +74,38 @@ def x3_news_epub(db: Annotated[Session, Depends(get_db)], day: str = "today", ca
         path,
         media_type="application/epub+zip",
         filename=_download_name(db, path, key, "epub", category=cat),
+    )
+
+
+@router.get("/papers/{day}/category/{category}/{filename:path}")
+def x3_named_category_epub(
+    day: str,
+    category: str,
+    filename: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    key = _day_key(day)
+    slug = slugify(category) or category.strip().lower()
+    path = frozen_briefing_path(key, suffix="epub", fallback=key == "today", category=slug)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
+    fallback = _download_name(db, path, key, "epub", category=slug)
+    return FileResponse(
+        path,
+        media_type="application/epub+zip",
+        filename=_response_filename(filename, fallback),
+    )
+
+
+@router.get("/papers/{day}/{filename:path}")
+def x3_named_epub(day: str, filename: str, db: Annotated[Session, Depends(get_db)]):
+    key = _day_key(day)
+    path = frozen_briefing_path(key, suffix="epub", fallback=key == "today")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Today's paper is not published yet.")
+    fallback = _download_name(db, path, key, "epub")
+    return FileResponse(
+        path,
+        media_type="application/epub+zip",
+        filename=_response_filename(filename, fallback),
     )

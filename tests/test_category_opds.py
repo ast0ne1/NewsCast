@@ -1,5 +1,7 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
+from zipfile import ZipFile
+import re
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -14,6 +16,15 @@ def _session() -> Session:
     engine = create_engine("sqlite://", future=True)
     Base.metadata.create_all(engine)
     return Session(engine)
+
+
+def _epub_title(path: Path) -> str:
+    with ZipFile(path) as archive:
+        opf = next(name for name in archive.namelist() if name.endswith(".opf"))
+        text = archive.read(opf).decode("utf-8", errors="replace")
+    match = re.search(r"<dc:title[^>]*>(.*?)</dc:title>", text)
+    assert match is not None
+    return match.group(1)
 
 
 def test_category_opds_keys_roundtrip():
@@ -32,6 +43,10 @@ def test_publish_writes_only_enabled_category_papers(tmp_path: Path, monkeypatch
     seed_builtin_categories(db)
     settings.set_value(db, "briefing_publish_at", "06:30")
     settings.set_value(db, "briefing_category_opds_keys", '["technology"]')
+    settings.set_value(db, "reader_paper_label", "My Morning Paper")
+    settings.set_value(db, "reader_title_pattern", "{label} - {date}")
+    settings.set_value(db, "reader_category_title_pattern", "{category} - {date}")
+    settings.set_value(db, "reader_date_format", "dmy")
     db.add_all(
         [
             Feed(name="World Desk", url="https://example.com/world", category="news", enabled=True),
@@ -68,9 +83,14 @@ def test_publish_writes_only_enabled_category_papers(tmp_path: Path, monkeypatch
     db.commit()
 
     publish_daily_briefing(db, now=now, overwrite=True)
-    assert (tmp_path / "news-2026-09-15.epub").exists()
-    assert (tmp_path / "news-2026-09-15-technology.epub").exists()
+    main = tmp_path / "news-2026-09-15.epub"
+    tech = tmp_path / "news-2026-09-15-technology.epub"
+    assert main.exists()
+    assert tech.exists()
     assert not (tmp_path / "news-2026-09-15-news.epub").exists()
+    assert _epub_title(main) == "My Morning Paper - 15-09-2026"
+    assert _epub_title(tech) == "Tech - 15-09-2026"
+    assert "·" not in _epub_title(tech)
 
 
 def test_opds_lists_categories_section(tmp_path: Path, monkeypatch):
@@ -95,5 +115,7 @@ def test_opds_lists_categories_section(tmp_path: Path, monkeypatch):
     assert "/opds/categories/news" in cats
 
     tech = opds.category_feed(db, "technology")
-    assert "category=technology" in tech
-    assert "day=2026-09-15" in tech
+    assert "/api/x3/papers/2026-09-15/category/technology/" in tech
+    assert "2026-09-15" in tech
+    assert "news.epub?" not in tech
+    assert 'title="NewsCast' in tech or "NewsCast -" in tech

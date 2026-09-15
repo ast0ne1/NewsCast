@@ -651,6 +651,7 @@ def write_category_briefing_files(db: Session, payload: dict, day: date) -> list
         title = paper_category_display_title(db, day, label)
         cat_payload["title"] = title
         cat_payload["paper_title"] = title
+        cat_payload["paper_id"] = f"newscast-{day.isoformat()}-{key}"
         paths = write_briefing_files(cat_payload, stem=dated_category_stem(day, key))
         written.append(paths["epub"])
     return written
@@ -952,7 +953,7 @@ def write_epub(payload: dict, dest: Path) -> None:
     paper_day = _payload_paper_date(payload)
     paper_title = (payload.get("paper_title") or "").strip() or f"{heading} {paper_day}"
     stories = payload.get("stories") or []
-    book.set_identifier(f"newscast-{paper_day}")
+    book.set_identifier((payload.get("paper_id") or "").strip() or f"newscast-{paper_day}")
     book.set_title(paper_title)
     book.set_language("en")
     book.add_author("NewsCast")

@@ -144,6 +144,40 @@ def test_x3_missing_paper_is_404(tmp_path: Path, monkeypatch):
     assert "not published" in response.json()["detail"]
 
 
+def test_x3_named_category_url_sets_category_filename(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "x3_catalog_login", "0")
+    settings.set_value(db, "reader_title_pattern", "NewsCast {date}")
+    settings.set_value(db, "reader_category_title_pattern", "NewsCast {category} {date}")
+    settings.set_value(db, "reader_date_format", "iso")
+    target = tmp_path / "news-2026-09-14-technology.epub"
+    target.write_bytes(b"PK tech-paper")
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    client = _client(db)
+    response = client.get("/api/x3/papers/2026-09-14/category/technology/NewsCast%20Tech%202026-09-14.epub")
+    assert response.status_code == 200
+    assert response.content == b"PK tech-paper"
+    disposition = response.headers.get("content-disposition", "")
+    assert "NewsCast%20Tech%202026-09-14.epub" in disposition
+    assert "NewsCast%202026-09-14.epub" not in disposition
+
+
+def test_x3_legacy_category_query_still_works(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
+    db = _session()
+    settings.set_value(db, "x3_catalog_login", "0")
+    settings.set_value(db, "reader_category_title_pattern", "NewsCast {category} {date}")
+    settings.set_value(db, "reader_date_format", "iso")
+    target = tmp_path / "news-2026-09-14-technology.epub"
+    target.write_bytes(b"PK tech-paper")
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 14))
+    client = _client(db)
+    response = client.get("/api/x3/news.epub?day=2026-09-14&category=technology")
+    assert response.status_code == 200
+    assert "NewsCast%20Tech%202026-09-14.epub" in response.headers.get("content-disposition", "")
+
+
 def test_paper_status_message(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     db = _session()

@@ -19,6 +19,8 @@ Current version is **0.0.0.6**. New work is appended under that version until yo
 - Catalog cards keep category/type chips under the title beside Add/Remove, so the button no longer pushes them down
 - Paper naming moves from Reader to Publication; Briefing size and importance move from Schedule to Publication
 - Schedule keeps refresh timing and Publish at only
+- OPDS acquisition links put day, category, and the paper filename in the path so readers save category papers under the displayed name (not `news.epub`)
+- Category EPUB metadata (`dc:title`) uses the category title pattern; changing naming patterns needs a republish for already-written papers
 
 ## 0.0.0.5 — 2026-09-14
 

@@ -17,7 +17,12 @@ from app.services.briefing import (
 )
 from app.services.categories import BUILTIN_LABELS, category_labels, slugify
 from app.services.library import media_type_for
-from app.services.paper_naming import paper_category_display_title, paper_display_title
+from app.services.paper_naming import (
+    paper_category_display_title,
+    paper_category_download_name,
+    paper_display_title,
+    paper_download_name,
+)
 
 ATOM = "http://www.w3.org/2005/Atom"
 NAV_TYPE = "application/atom+xml;profile=opds-catalog;kind=navigation"
@@ -61,13 +66,29 @@ def _text(parent: Element, tag: str, value: str) -> Element:
     return el
 
 
-def _link(parent: Element, *, rel: str, href: str, type_: str | None = None) -> Element:
+def _link(
+    parent: Element,
+    *,
+    rel: str,
+    href: str,
+    type_: str | None = None,
+    title: str | None = None,
+) -> Element:
     el = SubElement(parent, "link")
     el.set("rel", rel)
     el.set("href", href)
     if type_:
         el.set("type", type_)
+    if title:
+        el.set("title", title)
     return el
+
+
+def _paper_href(base: str, day: date, *, filename: str, category: str = "") -> str:
+    name = quote(filename)
+    if category:
+        return f"{base}/api/x3/papers/{day.isoformat()}/category/{quote(category)}/{name}"
+    return f"{base}/api/x3/papers/{day.isoformat()}/{name}"
 
 
 def _feed(*, title: str, feed_id: str, updated: str, self_href: str, start_href: str, kind: str) -> Element:
@@ -170,6 +191,7 @@ def category_feed(db: Session, category: str) -> str:
     )
     for day in papers:
         title = briefing_entry_title(db, day, category_label=label)
+        filename = paper_category_download_name(db, day, label)
         entry = SubElement(feed, "entry")
         _text(entry, "id", f"urn:newscast:briefing:{day.isoformat()}:{key}")
         _text(entry, "title", title)
@@ -177,8 +199,9 @@ def category_feed(db: Session, category: str) -> str:
         _link(
             entry,
             rel=ACQUISITION_REL,
-            href=f"{base}/api/x3/news.epub?day={day.isoformat()}&category={quote(key)}",
+            href=_paper_href(base, day, filename=filename, category=key),
             type_=EPUB_TYPE,
+            title=title,
         )
     return _xml(feed)
 
@@ -198,6 +221,7 @@ def briefing_feed(db: Session) -> str:
     )
     for day in papers:
         title = briefing_entry_title(db, day)
+        filename = paper_download_name(db, day)
         entry = SubElement(feed, "entry")
         _text(entry, "id", f"urn:newscast:briefing:{day.isoformat()}")
         _text(entry, "title", title)
@@ -205,8 +229,9 @@ def briefing_feed(db: Session) -> str:
         _link(
             entry,
             rel=ACQUISITION_REL,
-            href=f"{base}/api/x3/news.epub?day={day.isoformat()}",
+            href=_paper_href(base, day, filename=filename),
             type_=EPUB_TYPE,
+            title=title,
         )
     return _xml(feed)
 
