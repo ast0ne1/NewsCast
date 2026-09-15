@@ -1,6 +1,16 @@
 ﻿# Changelog
 
-Current version is **0.0.0.6**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.7**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.7 — 2026-09-15
+
+### Added
+- Settings Notifications tab for optional ntfy phone alerts when today’s paper is published and/or reaches the reader (off by default; configure server, topic, and token first)
+- Settings Translation tab sets a global target language (default English) for Translate feeds; Google and LLM follow that language, and stories store `content_lang` for backfill when the target changes
+
+### Changed
+- Favicon startup reconciles icons already on disk and only network-fetches for enabled feeds (and Saved) that are truly missing, with a cooldown after failures
+- Send tab splits waiting transfers from Your files, labels today’s paper by briefing path (not custom save name), and aligns Status push copy
 
 ## 0.0.0.6 — 2026-09-15
 
@@ -21,6 +31,7 @@ Current version is **0.0.0.6**. New work is appended under that version until yo
 - Schedule keeps refresh timing and Publish at only
 - OPDS acquisition links put day, category, and the paper filename in the path so readers save category papers under the displayed name (not `news.epub`)
 - Category EPUB metadata (`dc:title`) uses the category title pattern; changing naming patterns needs a republish for already-written papers
+- Settings Device tab is labelled General (URL `?tab=device` unchanged)
 
 ## 0.0.0.5 — 2026-09-14
 

@@ -3,10 +3,14 @@ from app.services.translate import (
     _join_segments,
     _unpack_story,
     feed_translate_mode,
+    llm_system_prompt,
     looks_untranslated,
+    needs_translation,
+    normalize_target_lang,
     parse_feed_translate_mode,
     resolve_provider,
     translate_story,
+    translate_text,
     translate_to_english,
 )
 
@@ -161,6 +165,59 @@ def test_translate_story_keeps_original_when_request_fails(monkeypatch):
     assert excerpt == "Politiet er på vej."
 
 
+def test_normalize_target_lang_defaults_to_english():
+    assert normalize_target_lang(None) == "en"
+    assert normalize_target_lang("ES") == "es"
+    assert normalize_target_lang("zz") == "en"
+
+
+def test_needs_translation_uses_content_lang():
+    class Story:
+        def __init__(self, content_lang=None):
+            self.content_lang = content_lang
+
+    assert needs_translation(Story(None), "en")
+    assert not needs_translation(Story("en"), "en")
+    assert needs_translation(Story("en"), "es")
+
+
+def test_translate_text_uses_spanish_tl(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [[["El primer ministro dimitió.", "Statsministeren gik af", None, None, 3]]]
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, params, data):
+            assert params["tl"] == "es"
+            return FakeResponse()
+
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("chrome fallback should not run")
+
+    monkeypatch.setattr("app.services.translate.httpx.Client", FakeClient)
+    assert translate_text("Statsministeren gik af", target_lang="es") == "El primer ministro dimitió."
+
+
+def test_llm_system_prompt_mentions_spanish():
+    prompt = llm_system_prompt("es")
+    assert "Spanish" in prompt
+    assert "English" not in prompt
+
+
 def test_translate_with_llm(monkeypatch):
     from app.services.settings import LlmConfig
 
@@ -173,8 +230,11 @@ def test_translate_with_llm(monkeypatch):
     class FakeResponse:
         choices = [FakeChoice()]
 
+    captured: dict = {}
+
     class FakeCompletions:
-        def create(self, **_kwargs):
+        def create(self, **kwargs):
+            captured["system"] = kwargs["messages"][0]["content"]
             return FakeResponse()
 
     class FakeChat:
@@ -193,9 +253,16 @@ def test_translate_with_llm(monkeypatch):
         ready=True,
         label="OpenAI",
     )
-    title, excerpt = translate_story("Huset brænder", "Politiet er på vej.", provider="llm", config=config)
+    title, excerpt = translate_story(
+        "Huset brænder",
+        "Politiet er på vej.",
+        provider="llm",
+        target_lang="es",
+        config=config,
+    )
     assert title == "The house is burning"
     assert "Police" in excerpt
+    assert "Spanish" in captured["system"]
 
 
 def test_unpack_story_splits_markers():

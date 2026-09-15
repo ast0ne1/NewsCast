@@ -9,7 +9,7 @@
       {{ reader.host }} is {{ 'online' if reader.online else 'asleep' }}
     {% else %}
       {{ reader.host }} has not been checked this session
-    {% endif %}{% if reader.pending %}, {{ reader.pending }} queued{% endif %}.
+    {% endif %}{% if reader.pending %}, {{ reader.pending }} waiting to reach the reader{% endif %}.
   </p>
 </section>
 
@@ -27,14 +27,19 @@
     <button class="btn btn-secondary" type="submit">Queue for later</button>
   </form>
 </div>
-{% with queue_next='/library' %}
-{% include "_queue.html" %}
-{% endwith %}
+{% if reader.queue %}
+<section class="stack">
+  <h2>Waiting to reach the reader</h2>
+  {% with queue_next='/library' %}
+  {% include "_queue.html" %}
+  {% endwith %}
+</section>
+{% endif %}
 
-<form method="post" action="/library" class="card panel saved-form" enctype="multipart/form-data" data-busy-label="Queuing…">
+<form method="post" action="/library" class="card panel saved-form" enctype="multipart/form-data" data-busy-label="Adding…">
   <div class="panel-head">
-    <h2>Queue for reader</h2>
-    <p class="hint">This is a one-off file, not a feed. It stays here until you remove it.</p>
+    <h2>Add a file to Send</h2>
+    <p class="hint">Stored here and offered on the next push. Not part of your feeds.</p>
   </div>
   <div class="panel-form">
     <p class="error-text" hidden data-form-error></p>
@@ -46,33 +51,36 @@
       File
       <input type="file" name="file" accept=".epub,.pdf,application/epub+zip,application/pdf" required />
     </label>
-    <button class="btn btn-primary" type="submit">Queue for reader</button>
+    <button class="btn btn-primary" type="submit">Add file</button>
   </div>
 </form>
 
 {% if library_files %}
-<ul class="feed-list">
-  {% for item in library_files %}
-  <li class="card feed-row">
-    <div class="feed-copy">
-      <h2>{{ item.title }}</h2>
-      <p class="meta">{{ item.original_name }} · {{ item.size }}{% if item.created_at %} · {{ item.created_at }} UTC{% endif %}</p>
-    </div>
-    <form method="post" action="/library/{{ item.id }}/push">
-      <button class="btn btn-secondary" type="submit">Send again</button>
-    </form>
-    <form method="post" action="/library/{{ item.id }}/delete" data-confirm="Remove this file from the library?" data-confirm-detail="It will leave this tab and the next reader sync." data-confirm-ok="Remove">
-      <button class="icon-btn" type="submit" aria-label="Delete {{ item.title }}" title="Remove file">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
-      </button>
-    </form>
-  </li>
-  {% endfor %}
-</ul>
+<section class="stack">
+  <h2>Your files</h2>
+  <ul class="feed-list">
+    {% for item in library_files %}
+    <li class="card feed-row">
+      <div class="feed-copy">
+        <h2>{{ item.title }}</h2>
+        <p class="meta">{{ item.original_name }} · {{ item.size }}{% if item.created_at %} · {{ item.created_at }} UTC{% endif %}</p>
+      </div>
+      <form method="post" action="/library/{{ item.id }}/push">
+        <button class="btn btn-secondary" type="submit">Push again</button>
+      </form>
+      <form method="post" action="/library/{{ item.id }}/delete" data-confirm="Remove this file from Send?" data-confirm-detail="It leaves this list and will not be offered on the next push." data-confirm-ok="Remove">
+        <button class="icon-btn" type="submit" aria-label="Delete {{ item.title }}" title="Remove file">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M9 7V5h6v2M7 7l1 13h8l1-13"/></svg>
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
 {% else %}
 <div class="empty card">
-  <h2>Nothing queued yet</h2>
-  <p>Choose an EPUB or PDF above. It goes to the reader on the next sync, without summarising.</p>
+  <h2>Your files</h2>
+  <p>No files added yet</p>
 </div>
 {% endif %}
 {% endblock %}

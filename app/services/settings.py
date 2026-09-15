@@ -70,6 +70,7 @@ TRANSLATE_PROVIDERS = [
 ]
 TRANSLATE_PROVIDER_IDS = {value for value, _label in TRANSLATE_PROVIDERS}
 DEFAULT_TRANSLATE_PROVIDER = "google"
+DEFAULT_TRANSLATE_TARGET_LANG = "en"
 READER_DEVICES = [
     ("xteink", "Xteink — CrossPoint"),
     ("kobo", "Kobo — KOReader"),
@@ -124,6 +125,7 @@ UI_KEYS = (
     "keyword_include",
     "keyword_exclude",
     "translate_provider",
+    "translate_target_lang",
     "reader_device",
     "reader_host",
     "reader_upload_path",
@@ -135,6 +137,14 @@ UI_KEYS = (
     "reader_category_title_pattern",
     "reader_date_format",
     "reader_paper_label",
+    "ntfy_enabled",
+    "ntfy_server",
+    "ntfy_topic",
+    "ntfy_token",
+    "ntfy_notify_on_publish",
+    "ntfy_notify_on_push",
+    "ntfy_last_publish_notified_day",
+    "ntfy_last_push_notified_day",
 )
 
 
@@ -184,6 +194,8 @@ def _default_value(key: str) -> str:
         return str(DEFAULT_MIN_IMPORTANCE)
     if key == "translate_provider":
         return DEFAULT_TRANSLATE_PROVIDER
+    if key == "translate_target_lang":
+        return DEFAULT_TRANSLATE_TARGET_LANG
     if key == "briefing_publish_at":
         return "06:30"
     if key == "reader_device":
@@ -200,6 +212,14 @@ def _default_value(key: str) -> str:
         return "NewsCast - {hostname} {instance} {category} {date}"
     if key == "reader_date_format":
         return DEFAULT_READER_DATE_FORMAT
+    if key == "ntfy_server":
+        return "https://ntfy.sh"
+    if key in {
+        "ntfy_enabled",
+        "ntfy_notify_on_publish",
+        "ntfy_notify_on_push",
+    }:
+        return "0"
     return ""
 
 
@@ -402,6 +422,12 @@ def encode_category_shares(shares: dict[str, int]) -> str:
 def translate_provider(db: Session) -> str:
     value = get_value(db, "translate_provider").strip().lower()
     return value if value in TRANSLATE_PROVIDER_IDS else DEFAULT_TRANSLATE_PROVIDER
+
+
+def translate_target_lang(db: Session) -> str:
+    from app.services.translate import normalize_target_lang
+
+    return normalize_target_lang(get_value(db, "translate_target_lang"))
 
 
 def get_int(db: Session, key: str, fallback: int) -> int:

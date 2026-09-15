@@ -247,7 +247,13 @@ def _purge_old_stories(db: Session) -> None:
 
 
 def _backfill_translations(db: Session, source_names: list[str] | None = None) -> int:
-    from app.services.translate import looks_untranslated, resolve_provider, translate_story, translate_to_english
+    from app.services.translate import (
+        needs_translation,
+        resolve_provider,
+        translate_story,
+        translate_text,
+        translate_target_lang,
+    )
 
     query = db.query(Feed).filter(Feed.translate.is_(True))
     if source_names is not None:
@@ -259,15 +265,12 @@ def _backfill_translations(db: Session, source_names: list[str] | None = None) -
         return 0
     llm = settings.llm_config(db)
     global_provider = settings.translate_provider(db)
+    target = translate_target_lang(db)
     by_name = {feed.name: feed for feed in feeds}
     updated = 0
     stories = db.query(Story).filter(Story.source_name.in_(list(by_name))).all()
     for story in stories:
-        if not (
-            looks_untranslated(story.title)
-            or looks_untranslated(story.summary or "")
-            or looks_untranslated(story.raw_excerpt or "")
-        ):
+        if not needs_translation(story, target):
             continue
         feed = by_name.get(story.source_name)
         provider = resolve_provider(db, feed, global_provider=global_provider)
@@ -280,13 +283,14 @@ def _backfill_translations(db: Session, source_names: list[str] | None = None) -
                 story.title,
                 original_excerpt or original_summary,
                 provider=provider,
+                target_lang=target,
                 config=llm,
                 db=db,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("backfill translate failed for %s: %s", story.title, exc)
             continue
-        if title == story.title and excerpt in {original_excerpt, original_summary, ""}:
+        if title == story.title and excerpt in {original_excerpt, original_summary, ""} and story.content_lang == target:
             continue
         story.title = title
         if excerpt:
@@ -295,10 +299,13 @@ def _backfill_translations(db: Session, source_names: list[str] | None = None) -
             story.summary = excerpt or title
         elif original_summary.strip() == original_excerpt.strip():
             story.summary = excerpt or title
-        elif looks_untranslated(original_summary):
+        else:
             story.summary = (
-                translate_to_english(original_summary, provider=provider, config=llm, db=db) or excerpt or title
+                translate_text(original_summary, provider=provider, target_lang=target, config=llm, db=db)
+                or excerpt
+                or title
             )
+        story.content_lang = target
         story.content_hash = content_hash(story.title, story.raw_excerpt or "")
         story.cluster_key = cluster_key(story.title)
         updated += 1
@@ -377,17 +384,20 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                         if summarize_feed:
                             extracts += 1
                     if translate_feed:
-                        from app.services.translate import resolve_provider, translate_story
+                        from app.services.translate import resolve_provider, translate_story, translate_target_lang
 
                         provider = resolve_provider(db, feed, global_provider=global_translate)
+                        target = translate_target_lang(db)
                         try:
                             item["title"], item["excerpt"] = translate_story(
                                 item["title"],
                                 item["excerpt"],
                                 provider=provider or "google",
+                                target_lang=target,
                                 config=llm,
                                 db=db,
                             )
+                            item["content_lang"] = target
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("translate failed for %s: %s", item["title"], exc)
                     item["content_hash"] = content_hash(item["title"], item["excerpt"])
@@ -472,6 +482,7 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
                     cluster_key=item["cluster_key"],
                     raw_excerpt=excerpt[:4000],
                     importance=importance,
+                    content_lang=item.get("content_lang"),
                 )
             )
             created += 1
@@ -490,7 +501,12 @@ def run_ingest(db: Session, force: bool = True, feed_id: int | None = None) -> d
         else:
             message = f"Added {created} new stor{'y' if created == 1 else 'ies'}."
         if translated:
-            message += f" Translated {translated} existing stor{'y' if translated == 1 else 'ies'} to English."
+            from app.services.translate import target_language_name, translate_target_lang
+
+            lang_name = target_language_name(translate_target_lang(db))
+            message += (
+                f" Translated {translated} existing stor{'y' if translated == 1 else 'ies'} into {lang_name}."
+            )
         if not llm.ready:
             if llm.provider == "ollama":
                 message += " Ollama has no model set, so summaries used extracted text."

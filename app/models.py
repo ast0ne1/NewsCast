@@ -56,6 +56,7 @@ class Story(Base):
     saved_origin: Mapped[str | None] = mapped_column(String(20), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     importance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_lang: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

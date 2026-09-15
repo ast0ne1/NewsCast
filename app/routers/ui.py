@@ -14,7 +14,7 @@ from app.auth import attach_session, clear_session, credentials_match, is_signed
 from app.config import ROOT_DIR, env
 from app.db import get_db
 from app.models import Feed, LibraryFile, Story, SyncTask, utcnow
-from app.services import backup, favicon, hostname, library, paper_naming, qrcode, reader_push, settings, update
+from app.services import backup, favicon, hostname, library, ntfy, paper_naming, qrcode, reader_push, settings, translate, update
 from app.services.briefing import (
     briefing_path,
     briefing_publish_at,
@@ -44,13 +44,14 @@ templates = Jinja2Templates(directory=str(ROOT_DIR / "app" / "templates"))
 logger = logging.getLogger("newscast.ui")
 
 SETTINGS_TABS = (
-    ("device", "Device"),
+    ("device", "General"),
     ("publication", "Publication"),
     ("schedule", "Schedule"),
     ("filters", "Filters"),
     ("translation", "Translation"),
     ("llm", "LLM"),
     ("reader", "Reader"),
+    ("notifications", "Notifications"),
     ("categories", "Categories"),
     ("catalog", "Catalog"),
     ("backup", "Backup/Restore"),
@@ -59,15 +60,26 @@ SETTINGS_TABS = (
 )
 SETTINGS_TAB_KEYS = {key for key, _label in SETTINGS_TABS}
 SETTINGS_TAB_ALIASES = {"access": "device"}
-SETTINGS_SAVE_TABS = {"device", "publication", "schedule", "filters", "translation", "llm", "reader", "update"}
+SETTINGS_SAVE_TABS = {
+    "device",
+    "publication",
+    "schedule",
+    "filters",
+    "translation",
+    "llm",
+    "reader",
+    "notifications",
+    "update",
+}
 SETTINGS_LEDES = {
     "device": "Colour palette, admin login, hostname, and the Home or Work name for this copy.",
     "publication": "How the paper is named, how many stories it keeps, category mix, and which topics get their own OPDS papers.",
     "schedule": "How often sources refresh, and when today’s newspaper freezes for the reader.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
-    "translation": "How Translate to English works for feeds that need it: Google Translate or your configured LLM.",
+    "translation": "Choose the language Translate feeds land in, and whether Google or your LLM does the work.",
     "llm": "OpenAI or Ollama for short summaries and optional translation. Refresh still works without a model.",
     "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login and push when the reader is on Wi-Fi.",
+    "notifications": "Phone alerts via ntfy when the paper is published or reaches the reader.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "catalog": "Import a country or industry package, or export one of your categories as JSON to share.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
@@ -491,6 +503,8 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "keyword_exclude": settings.get_value(db, "keyword_exclude"),
             "translate_providers": settings.TRANSLATE_PROVIDERS,
             "translate_provider": settings.translate_provider(db),
+            "translate_target_languages": translate.TARGET_LANGUAGES,
+            "translate_target_lang": settings.translate_target_lang(db),
             "reader_device": settings.reader_device(db),
             "reader_devices": settings.READER_DEVICES,
             "reader_host": settings.get_value(db, "reader_host"),
@@ -510,6 +524,12 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
             "reader_category_title_preview": paper_naming.paper_category_display_title(db, date.today(), "Tech"),
             "delivery": delivery_status(db),
+            "ntfy_enabled": settings.flag_enabled(db, "ntfy_enabled"),
+            "ntfy_server": settings.get_value(db, "ntfy_server") or "https://ntfy.sh",
+            "ntfy_topic": settings.get_value(db, "ntfy_topic"),
+            "ntfy_token": settings.secret_hint(db, "ntfy_token"),
+            "ntfy_notify_on_publish": settings.flag_enabled(db, "ntfy_notify_on_publish"),
+            "ntfy_notify_on_push": settings.flag_enabled(db, "ntfy_notify_on_push"),
         },
     )
 
@@ -786,6 +806,8 @@ def toggle_feed(feed_id: int, request: Request, db: Annotated[Session, Depends(g
     if feed:
         feed.enabled = not feed.enabled
         db.commit()
+        if feed.enabled and not favicon.cached_src(feed.favicon_name):
+            favicon.capture_for_feed_async(feed.id)
     if _wants_json(request):
         return JSONResponse({"ok": True, "enabled": bool(feed and feed.enabled)})
     return RedirectResponse("/feeds", status_code=303)
@@ -873,6 +895,7 @@ async def save_settings(
     keyword_include: Annotated[str, Form()] = "",
     keyword_exclude: Annotated[str, Form()] = "",
     translate_provider: Annotated[str, Form()] = "google",
+    translate_target_lang: Annotated[str, Form()] = "en",
     reader_host: Annotated[str, Form()] = "",
     reader_upload_path: Annotated[str, Form()] = "",
     reader_push_when_online: Annotated[str, Form()] = "",
@@ -885,6 +908,13 @@ async def save_settings(
     reader_category_title_pattern: Annotated[str, Form()] = "",
     reader_date_format: Annotated[str, Form()] = "iso",
     reader_paper_label: Annotated[str, Form()] = "",
+    ntfy_enabled: Annotated[str, Form()] = "",
+    ntfy_server: Annotated[str, Form()] = "",
+    ntfy_topic: Annotated[str, Form()] = "",
+    ntfy_token: Annotated[str, Form()] = "",
+    clear_ntfy_token: Annotated[str, Form()] = "",
+    ntfy_notify_on_publish: Annotated[str, Form()] = "",
+    ntfy_notify_on_push: Annotated[str, Form()] = "",
     settings_tab: Annotated[str, Form()] = "device",
 ):
     tab = normalize_settings_tab(settings_tab)
@@ -950,6 +980,7 @@ async def save_settings(
     provider = translate_provider.strip().lower()
     if provider in settings.TRANSLATE_PROVIDER_IDS:
         settings.set_value(db, "translate_provider", provider)
+    settings.set_value(db, "translate_target_lang", translate.normalize_target_lang(translate_target_lang))
     device = settings.normalize_reader_device(reader_device)
     settings.set_value(db, "reader_device", device)
     host = reader_host.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
@@ -991,6 +1022,19 @@ async def save_settings(
         settings.set_value(db, "reader_paper_label", label)
     else:
         settings.clear_value(db, "reader_paper_label")
+    settings.set_value(db, "ntfy_enabled", "1" if ntfy_enabled else "0")
+    settings.set_value(db, "ntfy_server", ntfy.normalize_server(ntfy_server))
+    topic = ntfy_topic.strip()
+    if topic:
+        settings.set_value(db, "ntfy_topic", topic)
+    else:
+        settings.clear_value(db, "ntfy_topic")
+    if clear_ntfy_token:
+        settings.clear_value(db, "ntfy_token")
+    elif ntfy_token.strip():
+        settings.set_value(db, "ntfy_token", ntfy_token.strip())
+    settings.set_value(db, "ntfy_notify_on_publish", "1" if ntfy_notify_on_publish else "0")
+    settings.set_value(db, "ntfy_notify_on_push", "1" if ntfy_notify_on_push else "0")
     wanted_host = hostname.normalize_hostname(device_hostname)
     if wanted_host:
         if not hostname.valid_hostname(wanted_host):

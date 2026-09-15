@@ -8,7 +8,7 @@
     </div>
     <form method="post" action="/reader/queue/{{ item.task_id }}/cancel">
       <input type="hidden" name="next" value="{{ queue_next|default('/status') }}" />
-      <button class="btn btn-secondary" type="submit">Cancel</button>
+      <button class="btn btn-secondary" type="submit">Remove from transfer</button>
     </form>
   </li>
   {% endfor %}

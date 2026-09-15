@@ -733,6 +733,16 @@ def publish_daily_briefing(
             from app.services import reader_push
 
             reader_push.enqueue_frozen_briefing(db)
+        from app.services import ntfy
+
+        paper_title = paper_display_title(db, day)
+        instance = (settings.get_value(db, "instance_name") or "").strip() or "NewsCast"
+        ntfy.notify(
+            db,
+            kind="publish",
+            title=instance,
+            body=f"Morning paper ready — {paper_title}",
+        )
     return dest
 
 

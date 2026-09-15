@@ -29,8 +29,8 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Saved** | Paste a one-off article URL. NewsCast scrapes the full text, keeps it for 7 days or a date you pick, and includes it in the next briefing |
 | **Search** | Find stories, favourites, and Saved long-reads in the SQLite store |
 | **Send** | Upload an EPUB or PDF. Check the reader when you want, then push now or queue until it is on Wi-Fi. The pending queue lists briefing vs Send files and can cancel one |
-| **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate to English, and Add custom |
-| **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Nordic feeds translate to English before they are stored. Tap Add; use plus only for a source that is not listed |
+| **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate into your target language, and Add custom |
+| **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Import or export a JSON package of providers. Translate feeds land in the language set under Settings → Translation. Tap Add; use plus only for a source that is not listed |
 | **Status** | Ingest health, last reader task, Check reader plus push / publish controls, the pending file queue, OPDS / briefing links, a note when a GitHub update is available, and a QR code to open or add this copy on an iPhone home screen (NewsCast Home, NewsCast Work) |
 | **Settings** | Tabs for Device (including colour palettes), Schedule (refresh interval, story cap, and newspaper publish time), Filters (include/exclude words), LLM, Reader (Xteink/CrossPoint or Kobo/KOReader, catalog login, and push), Categories, Backup/Restore, Update, and About |
 

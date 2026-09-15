@@ -146,14 +146,17 @@ def pending_crosspoint(db: Session) -> list[SyncTask]:
 
 
 def queue_label(task: SyncTask) -> str:
+    from app.services.delivery import briefing_day_for_task
+
+    day = briefing_day_for_task(task)
+    today = datetime.now().astimezone().date()
+    if day == today:
+        return "Today's paper"
+    if day is not None:
+        return f"Paper · {day.strftime('%d %b %Y')}"
     name = Path(task.save_path or task.file_path).name
-    match = BRIEFING_SAVE_RE.search(name)
-    if match:
-        day = date.fromisoformat(match.group(1))
-        if day == datetime.now().date():
-            return "Today's briefing"
-        return f"Briefing · {day.strftime('%d %b %Y')}"
-    return f"Send: {name}"
+    stem = Path(name).stem or name
+    return f"File · {stem}"
 
 
 def _created_label(value: datetime | None) -> str:
@@ -248,6 +251,17 @@ def flush_pending(db: Session) -> dict:
             uploaded += 1
             if briefing_day_for_task(task) == today:
                 mark_briefing_pushed(db, today)
+                from app.services import ntfy
+                from app.services.paper_naming import paper_display_title
+
+                label = Path(task.save_path or path.name).name or paper_display_title(db, today)
+                instance = (settings.get_value(db, "instance_name") or "").strip() or "NewsCast"
+                ntfy.notify(
+                    db,
+                    kind="push",
+                    title=instance,
+                    body=f"Morning paper is on the reader — {label}",
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("upload failed for %s: %s", path.name, exc)
     db.commit()

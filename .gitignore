@@ -21,6 +21,8 @@ data/reader_known_hosts
 .idea/
 .vscode/
 .cursor/
+plans/
+BACKLOG.md
 cookies.txt
 *.log
 dist/

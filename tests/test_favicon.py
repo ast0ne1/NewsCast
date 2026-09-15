@@ -235,3 +235,77 @@ def test_capture_for_feed_skips_fetch_when_named(tmp_path, monkeypatch):
 
     monkeypatch.setattr(favicon, "_fetch_icon", fail_fetch)
     assert favicon.capture_for_feed(feed) == "site.png"
+
+
+def _feed_session():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.models import Base
+
+    engine = create_engine("sqlite://", future=True)
+    Base.metadata.create_all(engine)
+    return Session(engine)
+
+
+def test_backfill_links_disk_without_fetch(tmp_path, monkeypatch):
+    from app.models import Feed
+
+    monkeypatch.setattr(favicon, "FAVICON_DIR", tmp_path)
+    (tmp_path / "example.com.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    db = _feed_session()
+    feed = Feed(name="Example", url="https://example.com/rss", enabled=True)
+    db.add(feed)
+    db.commit()
+
+    def fail_fetch(*_args, **_kwargs):
+        raise AssertionError("should not fetch when disk icon exists")
+
+    monkeypatch.setattr(favicon, "_fetch_icon", fail_fetch)
+    result = favicon.backfill_missing_feeds(db)
+    db.refresh(feed)
+    assert feed.favicon_name == "example.com.png"
+    assert result["linked"] == 1
+    assert result["fetched"] == 0
+
+
+def test_backfill_skips_named_and_disabled(tmp_path, monkeypatch):
+    from app.models import Feed
+
+    monkeypatch.setattr(favicon, "FAVICON_DIR", tmp_path)
+    (tmp_path / "named.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    db = _feed_session()
+    db.add(Feed(name="Named", url="https://named.example/rss", enabled=True, favicon_name="named.png"))
+    db.add(Feed(name="Off", url="https://off.example/rss", enabled=False))
+    db.commit()
+    fetches: list[str] = []
+
+    def track_fetch(url):
+        fetches.append(url)
+        return None
+
+    monkeypatch.setattr(favicon, "_fetch_icon", track_fetch)
+    result = favicon.backfill_missing_feeds(db)
+    assert fetches == []
+    assert result["fetched"] == 0
+
+
+def test_backfill_respects_attempt_cooldown(tmp_path, monkeypatch):
+    from app.models import Feed
+
+    monkeypatch.setattr(favicon, "FAVICON_DIR", tmp_path)
+    db = _feed_session()
+    db.add(Feed(name="Missing", url="https://missing.example/rss", enabled=True))
+    db.commit()
+    favicon._mark_attempt("https://missing.example/rss")
+    fetches: list[str] = []
+
+    def track_fetch(url):
+        fetches.append(url)
+        return None
+
+    monkeypatch.setattr(favicon, "_fetch_icon", track_fetch)
+    result = favicon.backfill_missing_feeds(db)
+    assert fetches == []
+    assert result["skipped"] >= 1
+

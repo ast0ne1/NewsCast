@@ -116,7 +116,7 @@
         <button class="chip-btn" type="button" data-paper-token="{{ '{' ~ token ~ '}' }}" title="{{ note }}">{{ '{' ~ token ~ '}' }}</button>
         {% endfor %}
       </div>
-      <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
+      <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the General tab. Empty parts are dropped.</p>
       <p class="hint">Full paper preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
       <label>
         Category paper title pattern
@@ -253,7 +253,16 @@
 
   <div class="stack settings-panel" id="settings-panel-translation" role="tabpanel" data-settings-panel="translation" aria-labelledby="settings-tab-translation"{% if settings_tab != 'translation' %} hidden{% endif %}>
     <div class="card stack">
-      <h2>Translate to English</h2>
+      <h2>Translate into</h2>
+      <label>
+        Target language
+        <select name="translate_target_lang">
+          {% for value, label in translate_target_languages %}
+          <option value="{{ value }}" {% if translate_target_lang == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Feeds marked Translate land in this language. Default is English.</p>
       <label>
         Global provider
         <select name="translate_provider">
@@ -370,7 +379,7 @@
           Device id
           <input type="text" name="x3_device_id" value="{{ x3_device_id }}" autocomplete="off" />
         </label>
-        <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on Device labels the briefing so you know which one you pulled.</p>
+        <p class="hint">The same reader can sync with this copy and another (home Pi or work laptop). Change the device host to that copy’s URL. Instance name on General labels the briefing so you know which one you pulled.</p>
       </div>
       <label>
         Reader host
@@ -410,6 +419,51 @@
       <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
       <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
       <p class="hint">{{ delivery.hint }}</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-notifications" role="tabpanel" data-settings-panel="notifications" aria-labelledby="settings-tab-notifications"{% if settings_tab != 'notifications' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Connection</h2>
+      <label class="check">
+        <input type="checkbox" name="ntfy_enabled" value="1" {% if ntfy_enabled %}checked{% endif %} />
+        Send phone alerts via ntfy
+      </label>
+      <p class="hint">Configure below, then turn this on. Nothing is sent while alerts are off. Install the ntfy app and subscribe to the same topic.</p>
+      <label>
+        Server
+        <input type="text" name="ntfy_server" value="{{ ntfy_server }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://ntfy.sh" />
+      </label>
+      <label>
+        Topic
+        <input type="text" name="ntfy_topic" value="{{ ntfy_topic }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="your-hard-to-guess-topic" />
+      </label>
+      <p class="hint">On public ntfy.sh, treat the topic name like a password.</p>
+      <label>
+        Access token
+        <input type="password" name="ntfy_token" autocomplete="off" placeholder="{{ ntfy_token.hint or 'Optional bearer token' }}" />
+      </label>
+      <p class="hint">
+        {% if ntfy_token.set %}Token saved from {{ ntfy_token.source }} ({{ ntfy_token.hint }}). Leave blank to keep it.{% else %}Optional. Needed for private ntfy servers or protected topics.{% endif %}
+      </p>
+      <label class="check">
+        <input type="checkbox" name="clear_ntfy_token" value="1" />
+        Clear saved access token
+      </label>
+    </div>
+    <div class="card stack">
+      <h2>When to notify</h2>
+      <p class="hint">These only apply when phone alerts are enabled above.</p>
+      <label class="check">
+        <input type="checkbox" name="ntfy_notify_on_publish" value="1" {% if ntfy_notify_on_publish %}checked{% endif %} />
+        When today’s paper is published
+      </label>
+      <label class="check">
+        <input type="checkbox" name="ntfy_notify_on_push" value="1" {% if ntfy_notify_on_push %}checked{% endif %} />
+        When today’s paper reaches the reader
+      </label>
+      <p class="hint">OPDS-only downloads are not tracked. Use the publish alert if you never push.</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>

@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -75,11 +76,24 @@ def test_cancel_pending_removes_from_queue(tmp_path: Path):
     assert path.exists()
 
 
-def test_queue_label_distinguishes_briefing_and_send():
-    briefing = SyncTask(save_path="/News/NewsCast-2026-09-14.epub", file_path="x")
-    send = SyncTask(save_path="/News/notes.epub", file_path="x")
-    assert "briefing" in reader_push.queue_label(briefing).lower()
-    assert reader_push.queue_label(send) == "Send: notes.epub"
+def test_queue_label_distinguishes_briefing_and_send(monkeypatch):
+    today = date(2026, 9, 15)
+    monkeypatch.setattr(
+        "app.services.reader_push.datetime",
+        type("DT", (), {"now": staticmethod(lambda: datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc))}),
+    )
+    briefing = SyncTask(
+        save_path="/News/My Morning Paper - 15-09-2026.epub",
+        file_path=f"/data/briefings/news-{today.isoformat()}.epub",
+    )
+    older = SyncTask(
+        save_path="/News/NewsCast-2026-09-14.epub",
+        file_path="/data/briefings/news-2026-09-14.epub",
+    )
+    send = SyncTask(save_path="/News/notes.epub", file_path="/library/notes.epub")
+    assert reader_push.queue_label(briefing) == "Today's paper"
+    assert reader_push.queue_label(older) == "Paper · 14 Sep 2026"
+    assert reader_push.queue_label(send) == "File · notes"
 
 
 def test_upload_marks_complete(tmp_path: Path, monkeypatch):

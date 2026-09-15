@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 from urllib.parse import urljoin, urlparse
@@ -18,6 +20,7 @@ USER_AGENT = (
 )
 TIMEOUT = httpx.Timeout(8.0, connect=5.0)
 MAX_BYTES = 256 * 1024
+ATTEMPT_COOLDOWN = timedelta(days=7)
 FEED_HOST_PREFIXES = ("feeds.", "rss.", "feed.")
 # Feed hosts that are not the public site (BBC RSS lives on bbci.co.uk).
 SITE_ALIASES = {
@@ -137,11 +140,14 @@ def ensure_favicon(url: str, *extra_urls: str) -> Path | None:
     existing = stored_path(url)
     if existing:
         _alias_file(existing, aliases)
+        _clear_attempt(url)
         return existing
     fetched = _fetch_icon(url)
     if fetched is None:
+        _mark_attempt(url)
         return None
     _alias_file(fetched, aliases)
+    _clear_attempt(url)
     return fetched
 
 
@@ -185,33 +191,136 @@ def capture_for_feed_async(feed_id: int) -> None:
     Thread(target=_worker, daemon=True, name="newscast-favicon").start()
 
 
+def backfill_missing_feeds(db) -> dict[str, int]:
+    """Reconcile favicon_name from disk; network only for enabled feeds that are truly missing."""
+    from app.models import Feed, Story
+
+    linked = 0
+    fetched = 0
+    skipped = 0
+    for feed in db.query(Feed).filter(Feed.enabled.is_(True)).all():
+        if cached_src(feed.favicon_name):
+            skipped += 1
+            continue
+        on_disk = stored_path(feed.url)
+        if on_disk is not None:
+            feed.favicon_name = on_disk.name
+            db.commit()
+            linked += 1
+            continue
+        if _attempt_recent(feed.url):
+            skipped += 1
+            continue
+        try:
+            if capture_for_feed(feed):
+                db.commit()
+                fetched += 1
+            else:
+                skipped += 1
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            _mark_attempt(feed.url)
+            skipped += 1
+            logger.debug("favicon backfill failed for %s", feed.url, exc_info=True)
+
+    for story in db.query(Story).filter(Story.saved.is_(True)).all():
+        url = story.canonical_url or ""
+        if not url:
+            continue
+        if src_for_url(url):
+            skipped += 1
+            continue
+        if _attempt_recent(url):
+            skipped += 1
+            continue
+        try:
+            if ensure_favicon(url):
+                fetched += 1
+            else:
+                skipped += 1
+        except Exception:  # noqa: BLE001
+            _mark_attempt(url)
+            skipped += 1
+            logger.debug("favicon backfill failed for saved %s", url, exc_info=True)
+
+    logger.info("favicon backfill: %s linked from disk, %s fetched, %s skipped", linked, fetched, skipped)
+    return {"linked": linked, "fetched": fetched, "skipped": skipped}
+
+
 def capture_missing_feeds() -> None:
     def _worker() -> None:
         from app.db import SessionLocal
-        from app.models import Feed, Story
 
         db = SessionLocal()
         try:
-            for feed in db.query(Feed).all():
-                if cached_src(feed.favicon_name):
-                    continue
-                try:
-                    capture_for_feed(feed)
-                    db.commit()
-                except Exception:  # noqa: BLE001
-                    db.rollback()
-                    logger.debug("favicon backfill failed for %s", feed.url, exc_info=True)
-            for story in db.query(Story).filter(Story.saved.is_(True)).all():
-                if src_for_url(story.canonical_url):
-                    continue
-                try:
-                    ensure_favicon(story.canonical_url)
-                except Exception:  # noqa: BLE001
-                    logger.debug("favicon backfill failed for saved %s", story.canonical_url, exc_info=True)
+            backfill_missing_feeds(db)
         finally:
             db.close()
 
     Thread(target=_worker, daemon=True, name="newscast-favicon-backfill").start()
+
+
+def _attempts_file() -> Path:
+    return FAVICON_DIR / ".attempts.json"
+
+
+def _load_attempts() -> dict:
+    path = _attempts_file()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_attempts(data: dict) -> None:
+    FAVICON_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _attempts_file().write_text(json.dumps(data, indent=0, sort_keys=True), encoding="utf-8")
+    except OSError:
+        logger.debug("could not write favicon attempts", exc_info=True)
+
+
+def _attempt_key(url: str) -> str:
+    return host_key(homepage_url(url) or url) or host_key(url)
+
+
+def _attempt_recent(url: str) -> bool:
+    key = _attempt_key(url)
+    if not key:
+        return False
+    raw = _load_attempts().get(key)
+    if not raw:
+        return False
+    try:
+        when = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - when < ATTEMPT_COOLDOWN
+
+
+def _mark_attempt(url: str) -> None:
+    key = _attempt_key(url)
+    if not key:
+        return
+    data = _load_attempts()
+    data[key] = datetime.now(timezone.utc).isoformat()
+    _save_attempts(data)
+
+
+def _clear_attempt(url: str) -> None:
+    key = _attempt_key(url)
+    if not key:
+        return
+    data = _load_attempts()
+    if key not in data:
+        return
+    data.pop(key, None)
+    _save_attempts(data)
 
 
 def map_for_feeds(feeds) -> dict[str, str]:

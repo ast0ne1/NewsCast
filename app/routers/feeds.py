@@ -100,6 +100,11 @@ def update_feed(feed_id: int, payload: FeedUpdate, db: Annotated[Session, Depend
         feed.translate = payload.translate
     db.commit()
     db.refresh(feed)
+    if feed.enabled:
+        from app.services.favicon import cached_src, capture_for_feed_async
+
+        if not cached_src(feed.favicon_name):
+            capture_for_feed_async(feed.id)
     return _feed_dict(feed)
 
 

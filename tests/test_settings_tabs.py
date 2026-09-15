@@ -12,6 +12,7 @@ def test_settings_tab_defaults_and_aliases():
     assert normalize_settings_tab("filters") == "filters"
     assert normalize_settings_tab("translation") == "translation"
     assert normalize_settings_tab("publication") == "publication"
+    assert normalize_settings_tab("notifications") == "notifications"
 
 
 def test_settings_path_keeps_known_tabs():
@@ -30,6 +31,7 @@ def test_settings_path_keeps_known_tabs():
         "translation",
         "llm",
         "reader",
+        "notifications",
         "categories",
         "catalog",
         "backup",

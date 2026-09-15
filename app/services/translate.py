@@ -42,11 +42,55 @@ FEED_PROVIDER_CHOICES = (
     ("google", "Translate with Google"),
     ("llm", "Translate with LLM"),
 )
-LLM_SYSTEM = (
-    "You translate news headlines and article excerpts into clear English. "
-    "Reply with only the English translation. Keep the meaning. "
-    "Do not summarise, explain, or add notes."
+TARGET_LANGUAGES = (
+    ("en", "English"),
+    ("es", "Spanish"),
+    ("de", "German"),
+    ("fr", "French"),
+    ("pt", "Portuguese"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+    ("sv", "Swedish"),
+    ("da", "Danish"),
+    ("no", "Norwegian"),
+    ("fi", "Finnish"),
+    ("pl", "Polish"),
+    ("ro", "Romanian"),
 )
+TARGET_LANG_IDS = {code for code, _label in TARGET_LANGUAGES}
+TARGET_LANG_LABELS = {code: label for code, label in TARGET_LANGUAGES}
+DEFAULT_TARGET_LANG = "en"
+
+
+def normalize_target_lang(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return key if key in TARGET_LANG_IDS else DEFAULT_TARGET_LANG
+
+
+def target_language_name(code: str | None) -> str:
+    return TARGET_LANG_LABELS.get(normalize_target_lang(code), "English")
+
+
+def translate_target_lang(db: Session | None) -> str:
+    from app.services import settings as settings_service
+
+    if db is None:
+        return DEFAULT_TARGET_LANG
+    return settings_service.translate_target_lang(db)
+
+
+def needs_translation(story, target_lang: str) -> bool:
+    stored = (getattr(story, "content_lang", None) or "").strip().lower()
+    return stored != normalize_target_lang(target_lang)
+
+
+def llm_system_prompt(target_lang: str) -> str:
+    name = target_language_name(target_lang)
+    return (
+        f"You translate news headlines and article excerpts into clear {name}. "
+        f"Reply with only the {name} translation. Keep the meaning. "
+        "Do not summarise, explain, or add notes."
+    )
 
 
 def looks_untranslated(text: str) -> bool:
@@ -98,10 +142,11 @@ def resolve_provider(db: Session | None, feed=None, *, global_provider: str | No
     return settings_service.translate_provider(db)
 
 
-def translate_to_english(
+def translate_text(
     text: str,
     *,
     provider: str = "google",
+    target_lang: str = DEFAULT_TARGET_LANG,
     config: LlmConfig | None = None,
     db: Session | None = None,
 ) -> str:
@@ -109,13 +154,24 @@ def translate_to_english(
     if not source:
         return ""
     engine = normalize_provider(provider)
+    target = normalize_target_lang(target_lang)
     if engine == "llm":
-        translated = _translate_with_llm(source, config=config, db=db)
+        translated = _translate_with_llm(source, target_lang=target, config=config, db=db)
         return translated if translated else source
-    parts = [_translate_chunk_google(chunk) for chunk in _chunks(source)]
+    parts = [_translate_chunk_google(chunk, target_lang=target) for chunk in _chunks(source)]
     if any(part is None for part in parts):
         return source
     return " ".join(part.strip() for part in parts if part).strip() or source
+
+
+def translate_to_english(
+    text: str,
+    *,
+    provider: str = "google",
+    config: LlmConfig | None = None,
+    db: Session | None = None,
+) -> str:
+    return translate_text(text, provider=provider, target_lang="en", config=config, db=db)
 
 
 def translate_story(
@@ -123,21 +179,25 @@ def translate_story(
     excerpt: str,
     *,
     provider: str = "google",
+    target_lang: str = DEFAULT_TARGET_LANG,
     config: LlmConfig | None = None,
     db: Session | None = None,
 ) -> tuple[str, str]:
     title = (title or "").strip()
     excerpt = (excerpt or "").strip()
     engine = normalize_provider(provider)
+    target = normalize_target_lang(target_lang)
     if excerpt:
         packed = f"{TITLE_MARK}\n{title}\n{BODY_MARK}\n{excerpt}"
-        english = translate_to_english(packed, provider=engine, config=config, db=db)
-        parsed = _unpack_story(english, title, excerpt)
+        rendered = translate_text(packed, provider=engine, target_lang=target, config=config, db=db)
+        parsed = _unpack_story(rendered, title, excerpt)
         if parsed:
             return parsed
-    english_title = translate_to_english(title, provider=engine, config=config, db=db) or title
-    english_excerpt = translate_to_english(excerpt, provider=engine, config=config, db=db) if excerpt else ""
-    return english_title.strip() or title, english_excerpt
+    new_title = translate_text(title, provider=engine, target_lang=target, config=config, db=db) or title
+    new_excerpt = (
+        translate_text(excerpt, provider=engine, target_lang=target, config=config, db=db) if excerpt else ""
+    )
+    return new_title.strip() or title, new_excerpt
 
 
 def _chunks(text: str) -> list[str]:
@@ -157,9 +217,10 @@ def _chunks(text: str) -> list[str]:
     return [piece for piece in pieces if piece]
 
 
-def _translate_chunk_google(text: str) -> str | None:
+def _translate_chunk_google(text: str, *, target_lang: str = DEFAULT_TARGET_LANG) -> str | None:
+    target = normalize_target_lang(target_lang)
     for attempt, requester in enumerate((_post_gtx, _get_chrome)):
-        result = requester(text)
+        result = requester(text, target_lang=target)
         if result:
             return result
         time.sleep(0.6 * (attempt + 1))
@@ -167,7 +228,13 @@ def _translate_chunk_google(text: str) -> str | None:
     return None
 
 
-def _translate_with_llm(text: str, *, config: LlmConfig | None, db: Session | None) -> str | None:
+def _translate_with_llm(
+    text: str,
+    *,
+    target_lang: str = DEFAULT_TARGET_LANG,
+    config: LlmConfig | None,
+    db: Session | None,
+) -> str | None:
     from app.services.importance import clear_ai_error, record_ai_error
     from app.services import settings as settings_service
 
@@ -184,7 +251,7 @@ def _translate_with_llm(text: str, *, config: LlmConfig | None, db: Session | No
             temperature=0.1,
             max_tokens=1200,
             messages=[
-                {"role": "system", "content": LLM_SYSTEM},
+                {"role": "system", "content": llm_system_prompt(target_lang)},
                 {"role": "user", "content": text[:8000]},
             ],
         )
@@ -200,12 +267,12 @@ def _translate_with_llm(text: str, *, config: LlmConfig | None, db: Session | No
     return out
 
 
-def _post_gtx(text: str) -> str | None:
+def _post_gtx(text: str, *, target_lang: str = DEFAULT_TARGET_LANG) -> str | None:
     try:
         with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers=HEADERS) as client:
             response = client.post(
                 GTX_URL,
-                params={"client": "gtx", "sl": "auto", "tl": "en", "dt": "t"},
+                params={"client": "gtx", "sl": "auto", "tl": normalize_target_lang(target_lang), "dt": "t"},
                 data={"q": text},
             )
             if response.status_code == 429:
@@ -218,12 +285,17 @@ def _post_gtx(text: str) -> str | None:
         return None
 
 
-def _get_chrome(text: str) -> str | None:
+def _get_chrome(text: str, *, target_lang: str = DEFAULT_TARGET_LANG) -> str | None:
     try:
         with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers=HEADERS) as client:
             response = client.get(
                 CHROME_URL,
-                params={"client": "dict-chrome-ex", "sl": "auto", "tl": "en", "q": text},
+                params={
+                    "client": "dict-chrome-ex",
+                    "sl": "auto",
+                    "tl": normalize_target_lang(target_lang),
+                    "q": text,
+                },
             )
             if response.status_code == 429:
                 logger.info("chrome translate rate-limited")

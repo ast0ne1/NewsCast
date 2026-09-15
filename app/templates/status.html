@@ -48,9 +48,9 @@
       <p class="stat-label">Queue</p>
       <p>
         {% if delivery.pending %}
-          {{ delivery.pending }} file{{ 's' if delivery.pending != 1 else '' }} waiting{% if delivery.queue_age_label %} (oldest {{ delivery.queue_age_label }}){% endif %}
+          {{ delivery.pending }} waiting to reach the reader{% if delivery.queue_age_label %} (oldest {{ delivery.queue_age_label }}){% endif %}
         {% else %}
-          Nothing queued
+          Nothing waiting
         {% endif %}
       </p>
     </li>
@@ -136,7 +136,7 @@
     {% else %}
       {{ reader.host }} has not been checked this session.
     {% endif %}
-    {% if reader.pending %}{{ reader.pending }} file{{ 's' if reader.pending != 1 else '' }} waiting.{% else %}Nothing queued.{% endif %}
+    {% if reader.pending %}{{ reader.pending }} waiting to reach the reader.{% else %}Nothing waiting.{% endif %}
     {% if reader.push_when_online %}
       {% if reader.device == 'kobo' %}NewsCast will push when KOReader’s SSH server is on Wi-Fi.{% else %}NewsCast will push when the reader is on Wi-Fi.{% endif %}
     {% endif %}
