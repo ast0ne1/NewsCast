@@ -5,7 +5,7 @@
 <section class="hero hero-row">
   <div>
     <h1>Feeds</h1>
-    <p class="lede">Each source can follow the global schedule ({{ global_interval_label }}) or use its own. Tap a card to edit schedule and filters. Tap the circular arrow to fetch just that source. Turn off Summarise to keep the full article text. Nordic sources translate the headline and excerpt to English before they are stored.</p>
+    <p class="lede">Each source can follow the global schedule ({{ global_interval_label }}) or use its own. Tap a card to edit schedule and filters. Tap the circular arrow to fetch just that source. Turn off Summarise to keep the full article text. Language can follow Settings → Translation (Google or LLM) or force one engine per source.</p>
   </div>
   <button class="btn btn-secondary btn-with-icon" type="button" data-open-sheet>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -33,7 +33,7 @@
           <span class="chip chip-quiet">{{ category_labels.get(feed.category, feed.category) }}</span>
           <span class="chip chip-quiet {% if feed.type == 'webpage' %}chip-scrape{% endif %}">{{ 'Scrape' if feed.type == 'webpage' else ('RSS' if feed.type == 'rss' else 'Auto') }}</span>
           <span class="chip chip-quiet">{{ 'Summarise' if feed.summarize != false else 'Full article' }}</span>
-          {% if feed.translate %}<span class="chip chip-quiet">Translate</span>{% endif %}
+          {% if feed.translate %}<span class="chip chip-quiet">{{ 'LLM' if feed.translate_mode == 'llm' else ('Google' if feed.translate_mode == 'google' else 'Translate') }}</span>{% endif %}
           <span class="chip chip-quiet chip-health chip-health-{{ feed.health }}">{{ feed.health_label }}</span>
           {% if feed.is_muted %}<span class="chip chip-quiet">Muted until {{ feed.muted_until.strftime('%d %b %Y %H:%M') }} UTC</span>{% endif %}
         </p>
@@ -108,10 +108,12 @@
           <label>
             Language
             <select name="translate">
-              <option value="0" {% if not feed.translate %}selected{% endif %}>As published</option>
-              <option value="1" {% if feed.translate %}selected{% endif %}>Translate to English</option>
+              {% for value, label in translate_modes %}
+              <option value="{{ value }}" {% if feed.translate_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
             </select>
           </label>
+          <p class="hint schedule-span">Global translation is currently {{ 'LLM' if global_translate_provider == 'llm' else 'Google' }} (Settings → Translation).</p>
           <label class="schedule-span">
             Include words
             <input type="text" name="keyword_include" value="{{ feed.keyword_include or '' }}" autocomplete="off" placeholder="optional, comma-separated" />

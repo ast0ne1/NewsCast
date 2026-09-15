@@ -26,6 +26,7 @@ class Feed(Base):
     interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     summarize: Mapped[bool] = mapped_column(Boolean, default=True)
     translate: Mapped[bool] = mapped_column(Boolean, default=False)
+    translate_provider: Mapped[str] = mapped_column(String(20), default="global")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

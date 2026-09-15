@@ -5,6 +5,10 @@ import re
 import time
 
 import httpx
+from openai import OpenAI
+from sqlalchemy.orm import Session
+
+from app.services.settings import LlmConfig
 
 logger = logging.getLogger("newscast.translate")
 GTX_URL = "https://translate.googleapis.com/translate_a/single"
@@ -31,6 +35,18 @@ ENGLISH_HINT = re.compile(
     re.I,
 )
 LANG_CODE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$")
+PROVIDERS = ("google", "llm")
+FEED_PROVIDER_CHOICES = (
+    ("off", "As published"),
+    ("global", "Translate (use global setting)"),
+    ("google", "Translate with Google"),
+    ("llm", "Translate with LLM"),
+)
+LLM_SYSTEM = (
+    "You translate news headlines and article excerpts into clear English. "
+    "Reply with only the English translation. Keep the meaning. "
+    "Do not summarise, explain, or add notes."
+)
 
 
 def looks_untranslated(text: str) -> bool:
@@ -42,27 +58,85 @@ def looks_untranslated(text: str) -> bool:
     return bool(NORDIC_LETTERS.search(text) and not ENGLISH_HINT.search(text))
 
 
-def translate_to_english(text: str) -> str:
+def normalize_provider(value: str | None, *, default: str = "google") -> str:
+    key = (value or "").strip().lower()
+    return key if key in PROVIDERS else default
+
+
+def parse_feed_translate_mode(value: str | None) -> tuple[bool, str]:
+    mode = (value or "off").strip().lower()
+    if mode in {"1", "true", "yes", "global", "translate"}:
+        return True, "global"
+    if mode == "google":
+        return True, "google"
+    if mode == "llm":
+        return True, "llm"
+    return False, "global"
+
+
+def feed_translate_mode(feed) -> str:
+    if not bool(getattr(feed, "translate", False)):
+        return "off"
+    raw = (getattr(feed, "translate_provider", None) or "global").strip().lower()
+    if raw in PROVIDERS:
+        return raw
+    return "global"
+
+
+def resolve_provider(db: Session | None, feed=None, *, global_provider: str | None = None) -> str | None:
+    from app.services import settings as settings_service
+
+    if feed is not None and not bool(getattr(feed, "translate", False)):
+        return None
+    feed_raw = (getattr(feed, "translate_provider", None) or "global").strip().lower() if feed is not None else "global"
+    if feed_raw in PROVIDERS:
+        return feed_raw
+    if global_provider:
+        return normalize_provider(global_provider)
+    if db is None:
+        return "google"
+    return settings_service.translate_provider(db)
+
+
+def translate_to_english(
+    text: str,
+    *,
+    provider: str = "google",
+    config: LlmConfig | None = None,
+    db: Session | None = None,
+) -> str:
     source = (text or "").strip()
     if not source:
         return ""
-    parts = [_translate_chunk(chunk) for chunk in _chunks(source)]
+    engine = normalize_provider(provider)
+    if engine == "llm":
+        translated = _translate_with_llm(source, config=config, db=db)
+        return translated if translated else source
+    parts = [_translate_chunk_google(chunk) for chunk in _chunks(source)]
     if any(part is None for part in parts):
         return source
     return " ".join(part.strip() for part in parts if part).strip() or source
 
 
-def translate_story(title: str, excerpt: str) -> tuple[str, str]:
+def translate_story(
+    title: str,
+    excerpt: str,
+    *,
+    provider: str = "google",
+    config: LlmConfig | None = None,
+    db: Session | None = None,
+) -> tuple[str, str]:
     title = (title or "").strip()
     excerpt = (excerpt or "").strip()
+    engine = normalize_provider(provider)
     if excerpt:
         packed = f"{TITLE_MARK}\n{title}\n{BODY_MARK}\n{excerpt}"
-        english = translate_to_english(packed)
+        english = translate_to_english(packed, provider=engine, config=config, db=db)
         parsed = _unpack_story(english, title, excerpt)
         if parsed:
             return parsed
-    english_title = translate_to_english(title) or title
-    english_excerpt = translate_to_english(excerpt) if excerpt else ""
+    english_title = translate_to_english(title, provider=engine, config=config, db=db) or title
+    english_excerpt = translate_to_english(excerpt, provider=engine, config=config, db=db) if excerpt else ""
     return english_title.strip() or title, english_excerpt
 
 
@@ -83,7 +157,7 @@ def _chunks(text: str) -> list[str]:
     return [piece for piece in pieces if piece]
 
 
-def _translate_chunk(text: str) -> str | None:
+def _translate_chunk_google(text: str) -> str | None:
     for attempt, requester in enumerate((_post_gtx, _get_chrome)):
         result = requester(text)
         if result:
@@ -91,6 +165,39 @@ def _translate_chunk(text: str) -> str | None:
         time.sleep(0.6 * (attempt + 1))
     logger.warning("translate failed after Google fallbacks")
     return None
+
+
+def _translate_with_llm(text: str, *, config: LlmConfig | None, db: Session | None) -> str | None:
+    from app.services.importance import clear_ai_error, record_ai_error
+    from app.services import settings as settings_service
+
+    cfg = config
+    if cfg is None and db is not None:
+        cfg = settings_service.llm_config(db)
+    if cfg is None or not cfg.ready:
+        logger.info("llm translate skipped: model not ready")
+        return None
+    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url) if cfg.base_url else OpenAI(api_key=cfg.api_key)
+    try:
+        response = client.chat.completions.create(
+            model=cfg.model or "gpt-4o-mini",
+            temperature=0.1,
+            max_tokens=1200,
+            messages=[
+                {"role": "system", "content": LLM_SYSTEM},
+                {"role": "user", "content": text[:8000]},
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        record_ai_error(db, f"Translate failed: {exc}")
+        logger.info("llm translate failed: %s", exc)
+        return None
+    out = (response.choices[0].message.content or "").strip()
+    if not out:
+        record_ai_error(db, "Translate returned empty text.")
+        return None
+    clear_ai_error(db)
+    return out
 
 
 def _post_gtx(text: str) -> str | None:

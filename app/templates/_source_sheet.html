@@ -38,8 +38,9 @@
       <label>
         Language
         <select name="translate">
-          <option value="0" selected>As published</option>
-          <option value="1">Translate to English</option>
+          {% for value, label in translate_modes %}
+          <option value="{{ value }}" {% if value == 'off' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </label>
       <div class="btn-row">

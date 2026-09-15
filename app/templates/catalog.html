@@ -35,7 +35,13 @@
     {% for feed in custom_feeds %}
     <li class="card catalog-card is-added" data-filter-item data-category="{{ feed.category }}" data-source="{{ 'webpage' if feed.type == 'webpage' else 'rss' }}">
       <div class="catalog-top">
-        <h3 class="catalog-title">{% if favicons.get(feed.name) %}<img class="source-icon source-icon-lg" src="{{ favicons[feed.name] }}" alt="" width="20" height="20">{% endif %}{{ feed.name }}</h3>
+        <div class="catalog-main">
+          <h3 class="catalog-title">{% if favicons.get(feed.name) %}<img class="source-icon source-icon-lg" src="{{ favicons[feed.name] }}" alt="" width="20" height="20">{% endif %}{{ feed.name }}</h3>
+          <p class="catalog-meta">
+            <span class="chip chip-quiet">{{ category_labels.get(feed.category, feed.category) }}</span>
+            <span class="chip chip-quiet {% if feed.type == 'webpage' %}chip-scrape{% endif %}">{{ 'Scrape' if feed.type == 'webpage' else ('RSS' if feed.type == 'rss' else 'Auto') }}</span>
+          </p>
+        </div>
         <form method="post" action="/feeds/{{ feed.id }}/delete" data-confirm="Remove {{ feed.name }}?" data-confirm-detail="Existing stories stay in the briefing until they expire." data-confirm-ok="Remove">
           <input type="hidden" name="next" value="/catalog" />
           <button class="catalog-action is-remove" type="submit" aria-label="Remove {{ feed.name }}">
@@ -44,10 +50,6 @@
           </button>
         </form>
       </div>
-      <p class="catalog-meta">
-        <span class="chip chip-quiet">{{ category_labels.get(feed.category, feed.category) }}</span>
-        <span class="chip chip-quiet {% if feed.type == 'webpage' %}chip-scrape{% endif %}">{{ 'Scrape' if feed.type == 'webpage' else ('RSS' if feed.type == 'rss' else 'Auto') }}</span>
-      </p>
     </li>
     {% endfor %}
   </ul>
@@ -61,7 +63,14 @@
     {% for item in items %}
     <li class="card catalog-card{% if item.added %} is-added{% endif %}" data-filter-item data-category="{{ category }}" data-source="{{ item.source_kind }}">
       <div class="catalog-top">
-        <h3 class="catalog-title">{% if item.favicon %}<img class="source-icon source-icon-lg" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}{{ item.name }}</h3>
+        <div class="catalog-main">
+          <h3 class="catalog-title">{% if item.favicon %}<img class="source-icon source-icon-lg" src="{{ item.favicon }}" alt="" width="20" height="20">{% endif %}{{ item.name }}</h3>
+          <p class="catalog-meta">
+            <span class="chip chip-quiet">{{ item.label }}</span>
+            <span class="chip chip-quiet {% if item.source_kind == 'webpage' %}chip-scrape{% endif %}">{{ item.source_label }}</span>
+            {% if item.translate %}<span class="chip chip-quiet">Translate</span>{% endif %}
+          </p>
+        </div>
         {% if item.added %}
           <form method="post" action="/catalog/{{ item.id }}/remove" data-confirm="Remove {{ item.name }}?" data-confirm-detail="Existing stories stay in the briefing until they expire." data-confirm-ok="Remove">
             <button class="catalog-action is-remove" type="submit" aria-label="Remove {{ item.name }}">
@@ -78,11 +87,6 @@
           </form>
         {% endif %}
       </div>
-      <p class="catalog-meta">
-        <span class="chip chip-quiet">{{ item.label }}</span>
-        <span class="chip chip-quiet {% if item.source_kind == 'webpage' %}chip-scrape{% endif %}">{{ item.source_label }}</span>
-        {% if item.translate %}<span class="chip chip-quiet">Translate</span>{% endif %}
-      </p>
     </li>
     {% endfor %}
   </ul>

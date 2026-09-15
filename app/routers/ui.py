@@ -45,8 +45,10 @@ logger = logging.getLogger("newscast.ui")
 
 SETTINGS_TABS = (
     ("device", "Device"),
+    ("publication", "Publication"),
     ("schedule", "Schedule"),
     ("filters", "Filters"),
+    ("translation", "Translation"),
     ("llm", "LLM"),
     ("reader", "Reader"),
     ("categories", "Categories"),
@@ -57,13 +59,15 @@ SETTINGS_TABS = (
 )
 SETTINGS_TAB_KEYS = {key for key, _label in SETTINGS_TABS}
 SETTINGS_TAB_ALIASES = {"access": "device"}
-SETTINGS_SAVE_TABS = {"device", "schedule", "filters", "llm", "reader", "update"}
+SETTINGS_SAVE_TABS = {"device", "publication", "schedule", "filters", "translation", "llm", "reader", "update"}
 SETTINGS_LEDES = {
     "device": "Colour palette, admin login, hostname, and the Home or Work name for this copy.",
-    "schedule": "How often sources refresh, when the reader newspaper publishes, and how many stories Briefing shows.",
+    "publication": "How the paper is named, how many stories it keeps, category mix, and which topics get their own OPDS papers.",
+    "schedule": "How often sources refresh, and when today’s newspaper freezes for the reader.",
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
-    "llm": "OpenAI or Ollama for short summaries. Refresh still works without a model.",
-    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login, paper title pattern, and push when the reader is on Wi-Fi.",
+    "translation": "How Translate to English works for feeds that need it: Google Translate or your configured LLM.",
+    "llm": "OpenAI or Ollama for short summaries and optional translation. Refresh still works without a model.",
+    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login and push when the reader is on Wi-Fi.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "catalog": "Import a country or industry package, or export one of your categories as JSON to share.",
     "backup": "Download or restore a zip of the database, Send library, and .env, or roll back the last app.",
@@ -119,6 +123,7 @@ def login_page(request: Request, db: Annotated[Session, Depends(get_db)], next: 
             "username": "",
             "using_factory_admin": settings.using_factory_admin(db),
             "app_version": __version__,
+            "asset_rev": __asset_rev__,
             "homescreen_name": hostname.homescreen_name(db),
         },
     )
@@ -172,6 +177,7 @@ def login_submit(
             "username": username.strip(),
             "using_factory_admin": settings.using_factory_admin(db),
             "app_version": __version__,
+            "asset_rev": __asset_rev__,
             "homescreen_name": hostname.homescreen_name(db),
         },
     )
@@ -348,12 +354,15 @@ def delete_saved_article(story_id: int, request: Request, db: Annotated[Session,
 
 @router.get("/feeds")
 def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.services.translate import FEED_PROVIDER_CHOICES, feed_translate_mode
+
     feeds = db.query(Feed).order_by(Feed.enabled.desc(), Feed.name.asc()).all()
     now = utcnow()
     for feed in feeds:
         feed.is_muted = feed_is_muted(feed, now)
         feed.health = feed_health(feed, now)
         feed.health_label = feed_health_label(feed, now)
+        feed.translate_mode = feed_translate_mode(feed)
     return templates.TemplateResponse(
         request,
         "feeds.html",
@@ -366,12 +375,16 @@ def feeds_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "global_interval_label": settings.format_interval_short(
                 settings.get_int(db, "ingest_interval_minutes", env.ingest_interval_minutes)
             ),
+            "translate_modes": FEED_PROVIDER_CHOICES,
+            "global_translate_provider": settings.translate_provider(db),
         },
     )
 
 
 @router.get("/catalog")
 def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
+    from app.services.translate import FEED_PROVIDER_CHOICES
+
     return templates.TemplateResponse(
         request,
         "catalog.html",
@@ -380,6 +393,7 @@ def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             "catalog": grouped_catalog(db),
             "custom_feeds": db.query(Feed).filter(Feed.catalog_id.is_(None)).order_by(Feed.name.asc()).all(),
             "category_labels": category_labels(db),
+            "translate_modes": FEED_PROVIDER_CHOICES,
         },
     )
 
@@ -464,6 +478,9 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "briefing_limit": settings.briefing_limit(db),
             "importance_min_choices": settings.IMPORTANCE_MIN_CHOICES,
             "briefing_min_importance": settings.briefing_min_importance(db),
+            "briefing_category_mix": settings.briefing_category_mix_enabled(db),
+            "briefing_category_opds_keys": settings.briefing_category_opds_keys(db),
+            "briefing_category_shares": settings.briefing_category_shares(db),
             "briefing_publish_at": briefing_publish_at(db),
             "github_repo": update.repo_from_db(db),
             "update_check": update.last_check(db),
@@ -472,6 +489,8 @@ def settings_page(request: Request, db: Annotated[Session, Depends(get_db)], tab
             "latest_backup": backup.latest_backup(),
             "keyword_include": settings.get_value(db, "keyword_include"),
             "keyword_exclude": settings.get_value(db, "keyword_exclude"),
+            "translate_providers": settings.TRANSLATE_PROVIDERS,
+            "translate_provider": settings.translate_provider(db),
             "reader_device": settings.reader_device(db),
             "reader_devices": settings.READER_DEVICES,
             "reader_host": settings.get_value(db, "reader_host"),
@@ -645,7 +664,7 @@ def create_feed_form(
     category: Annotated[str, Form()] = "news",
     source_type: Annotated[str, Form()] = "auto",
     summarize: Annotated[str, Form()] = "1",
-    translate: Annotated[str, Form()] = "0",
+    translate: Annotated[str, Form()] = "off",
     next: Annotated[str, Form()] = "/feeds",
 ):
     nxt = safe_next(next)
@@ -657,6 +676,9 @@ def create_feed_form(
             return JSONResponse({"ok": False, "message": "Enter a valid http(s) site or feed URL."}, status_code=400)
         return RedirectResponse(nxt, status_code=303)
     kind = source_type if source_type in {"auto", "rss", "webpage"} else "auto"
+    from app.services.translate import parse_feed_translate_mode
+
+    do_translate, translate_provider = parse_feed_translate_mode(translate)
     existing = db.query(Feed).filter(Feed.url == url.strip()).one_or_none()
     if existing is None:
         db.add(
@@ -667,7 +689,8 @@ def create_feed_form(
                 type=kind,
                 enabled=True,
                 summarize=summarize != "0",
-                translate=translate != "0",
+                translate=do_translate,
+                translate_provider=translate_provider,
             )
         )
         db.commit()
@@ -687,7 +710,7 @@ def save_feed_schedule(
     schedule_mode: Annotated[str, Form()] = "global",
     interval_minutes: Annotated[str, Form()] = "",
     summarize: Annotated[str, Form()] = "1",
-    translate: Annotated[str, Form()] = "0",
+    translate: Annotated[str, Form()] = "off",
     keyword_include: Annotated[str, Form()] = "",
     keyword_exclude: Annotated[str, Form()] = "",
 ):
@@ -696,6 +719,8 @@ def save_feed_schedule(
         if _wants_json(request):
             return JSONResponse({"ok": False, "message": "Feed not found."}, status_code=404)
         return RedirectResponse("/feeds", status_code=303)
+    from app.services.translate import parse_feed_translate_mode
+
     feed.schedule_mode = schedule_mode if schedule_mode in {"global", "custom"} else "global"
     if feed.schedule_mode == "custom":
         try:
@@ -704,7 +729,9 @@ def save_feed_schedule(
         except ValueError:
             feed.interval_minutes = 60
     feed.summarize = summarize != "0"
-    feed.translate = translate != "0"
+    do_translate, translate_provider = parse_feed_translate_mode(translate)
+    feed.translate = do_translate
+    feed.translate_provider = translate_provider
     feed.keyword_include = keyword_include.strip()
     feed.keyword_exclude = keyword_exclude.strip()
     db.commit()
@@ -811,7 +838,7 @@ def remove_catalog_form(catalog_id: str, request: Request, db: Annotated[Session
 
 
 @router.post("/settings")
-def save_settings(
+async def save_settings(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     admin_username: Annotated[str, Form()] = "",
@@ -837,10 +864,12 @@ def save_settings(
     ingest_active_end: Annotated[str, Form()] = "",
     briefing_limit: Annotated[str, Form()] = "",
     briefing_min_importance: Annotated[str, Form()] = "",
+    briefing_category_mix: Annotated[str, Form()] = "",
     briefing_publish_at: Annotated[str, Form()] = "",
     github_repo: Annotated[str, Form()] = "",
     keyword_include: Annotated[str, Form()] = "",
     keyword_exclude: Annotated[str, Form()] = "",
+    translate_provider: Annotated[str, Form()] = "google",
     reader_host: Annotated[str, Form()] = "",
     reader_upload_path: Annotated[str, Form()] = "",
     reader_push_when_online: Annotated[str, Form()] = "",
@@ -855,6 +884,7 @@ def save_settings(
     settings_tab: Annotated[str, Form()] = "device",
 ):
     tab = normalize_settings_tab(settings_tab)
+    form = await request.form()
     reauth = False
     current_user, current_pass = settings.get_admin_credentials(db)
     changing_password = bool(new_password.strip())
@@ -913,6 +943,9 @@ def save_settings(
     settings.set_value(db, "x3_device_id", x3_device_id.strip())
     settings.set_value(db, "keyword_include", keyword_include.strip())
     settings.set_value(db, "keyword_exclude", keyword_exclude.strip())
+    provider = translate_provider.strip().lower()
+    if provider in settings.TRANSLATE_PROVIDER_IDS:
+        settings.set_value(db, "translate_provider", provider)
     device = settings.normalize_reader_device(reader_device)
     settings.set_value(db, "reader_device", device)
     host = reader_host.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
@@ -990,6 +1023,29 @@ def save_settings(
         if minimum not in settings.IMPORTANCE_MIN_VALUES:
             return _settings_error(request, "Choose a paper importance threshold from 1 to 5.", tab)
         settings.set_value(db, "briefing_min_importance", str(minimum))
+    settings.set_value(db, "briefing_category_mix", "1" if briefing_category_mix else "0")
+    category_shares: dict[str, int] = {}
+    opds_keys: set[str] = set()
+    for category in list_categories(db):
+        raw = str(form.get(f"category_share_{category.key}", "") or "").strip()
+        if raw == "":
+            continue
+        try:
+            percent = int(raw)
+        except ValueError:
+            return _settings_error(request, f"Category share for {category.label} must be a whole number.", tab)
+        if percent < 0 or percent > 100:
+            return _settings_error(request, "Category shares must be between 0 and 100.", tab)
+        category_shares[category.key] = percent
+    explicit_total = sum(value for value in category_shares.values() if value > 0)
+    if explicit_total > 100:
+        return _settings_error(request, "Category percentages cannot add up to more than 100.", tab)
+    settings.set_value(db, "briefing_category_shares", settings.encode_category_shares(category_shares))
+    if tab == "publication":
+        for category in list_categories(db):
+            if form.get(f"category_opds_{category.key}"):
+                opds_keys.add(category.key)
+        settings.set_value(db, "briefing_category_opds_keys", settings.encode_category_opds_keys(opds_keys))
     if briefing_publish_at.strip():
         settings.set_value(db, "briefing_publish_at", normalize_publish_at(briefing_publish_at))
     repo = update.normalize_repo(github_repo)

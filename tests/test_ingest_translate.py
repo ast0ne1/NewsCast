@@ -42,7 +42,7 @@ def test_ingest_translates_before_store(monkeypatch):
     monkeypatch.setattr("app.services.ingest._collect_feed_items", fake_collect)
     monkeypatch.setattr(
         "app.services.translate.translate_story",
-        lambda title, excerpt: ("The prime minister resigned", "The government is stepping down tonight."),
+        lambda title, excerpt, **_kwargs: ("The prime minister resigned", "The government is stepping down tonight."),
     )
     monkeypatch.setattr("app.services.briefing.enqueue_latest_briefing", lambda _db: None)
     monkeypatch.setattr("app.services.briefing.purge_expired_stories", lambda _db: None)

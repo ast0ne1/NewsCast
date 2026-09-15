@@ -63,6 +63,8 @@ def seed_recommended_feeds(db: Session) -> None:
             wanted_translate = bool(item.get("translate"))
             if bool(getattr(feed, "translate", False)) != wanted_translate:
                 feed.translate = wanted_translate
+                if wanted_translate and not (getattr(feed, "translate_provider", None) or "").strip():
+                    feed.translate_provider = "global"
                 changed = True
             wanted_category = item.get("category", "news")
             if feed.category != wanted_category:
@@ -80,6 +82,7 @@ def seed_recommended_feeds(db: Session) -> None:
                 type=item.get("type", "rss"),
                 category=item.get("category", "news"),
                 translate=bool(item.get("translate")),
+                translate_provider="global",
             )
         )
         used_urls.add(item["url"])

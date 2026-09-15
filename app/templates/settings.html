@@ -99,6 +99,93 @@
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>
 
+  <div class="stack settings-panel" id="settings-panel-publication" role="tabpanel" data-settings-panel="publication" aria-labelledby="settings-tab-publication"{% if settings_tab != 'publication' %} hidden{% endif %}>
+    <div class="card stack" data-paper-naming>
+      <h2>Paper naming</h2>
+      <label>
+        Paper label
+        <input type="text" name="reader_paper_label" value="{{ reader_paper_label }}" autocomplete="off" placeholder="Morning paper" data-paper-label />
+      </label>
+      <p class="hint">Used by the <code>{label}</code> token. Leave blank to omit it.</p>
+      <label>
+        Paper title pattern
+        <input type="text" name="reader_title_pattern" value="{{ reader_title_pattern }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="NewsCast - {hostname} {instance} {date}" data-paper-pattern maxlength="120" />
+      </label>
+      <div class="token-chips" role="group" aria-label="Insert pattern token">
+        {% for token, note in reader_title_tokens %}
+        <button class="chip-btn" type="button" data-paper-token="{{ '{' ~ token ~ '}' }}" title="{{ note }}">{{ '{' ~ token ~ '}' }}</button>
+        {% endfor %}
+      </div>
+      <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
+      <label>
+        Paper date format
+        <select name="reader_date_format" data-paper-date-format>
+          {% for value, label in reader_date_formats %}
+          <option value="{{ value }}" {% if reader_date_format == value %}selected{% endif %} data-paper-date-sample="{{ reader_date_previews[value] }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Live preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
+    </div>
+
+    <div class="card stack">
+      <h2>Briefing</h2>
+      <label>
+        Stories on Briefing
+        <select name="briefing_limit">
+          {% for value, label in briefing_limits %}
+          <option value="{{ value }}" {% if briefing_limit == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">The Briefing tab stays live. The reader EPUB uses this cap and freezes at publish time.</p>
+      <label>
+        Paper includes stories rated
+        <select name="briefing_min_importance">
+          {% for value, label in importance_min_choices %}
+          <option value="{{ value }}" {% if briefing_min_importance == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">New stories get an importance score from 1 (ignore) to 5 (major). Favourites and Saved long-reads always stay in the paper.</p>
+    </div>
+
+    <div class="card stack">
+      <h2>Category mix</h2>
+      <label class="check">
+        <input type="checkbox" name="briefing_category_mix" value="1" {% if briefing_category_mix %}checked{% endif %} />
+        <span>Allocate Briefing slots by category</span>
+      </label>
+      <p class="hint">Shapes how many stories from each topic appear in Briefing and the full daily paper. Leave a category blank to share leftover slots. Set 0 to exclude it. Favourites and Saved long-reads always stay.</p>
+      <div class="category-share-grid">
+        {% for category in categories %}
+        <label>
+          {{ category.label }}
+          <span class="category-share-field">
+            <input type="number" name="category_share_{{ category.key }}" min="0" max="100" step="1" inputmode="numeric" placeholder="Auto" value="{% if category.key in briefing_category_shares %}{{ briefing_category_shares[category.key] }}{% endif %}" />
+            <span class="category-share-unit" aria-hidden="true">%</span>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="hint">Example: World News 25, Tech 50, leave the rest blank — leftover slots split evenly across blank categories.</p>
+    </div>
+
+    <div class="card stack">
+      <h2>Category papers (OPDS)</h2>
+      <p class="hint">Choose which topics also get their own EPUB in the OPDS catalog, under Categories. The full daily paper is always published. Republish (or wait for the next publish time) after changing this.</p>
+      <div class="category-opds-grid">
+        {% for category in categories %}
+        <label class="check">
+          <input type="checkbox" name="category_opds_{{ category.key }}" value="1" {% if category.key in briefing_category_opds_keys %}checked{% endif %} />
+          <span>{{ category.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
   <div class="stack settings-panel" id="settings-panel-schedule" role="tabpanel" data-settings-panel="schedule" aria-labelledby="settings-tab-schedule"{% if settings_tab != 'schedule' %} hidden{% endif %}>
     <div class="card stack">
       <h2>Refresh schedule</h2>
@@ -125,25 +212,7 @@
     </div>
 
     <div class="card stack">
-      <h2>Briefing</h2>
-      <label>
-        Stories on Briefing
-        <select name="briefing_limit">
-          {% for value, label in briefing_limits %}
-          <option value="{{ value }}" {% if briefing_limit == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <p class="hint">The Briefing tab stays live. The reader EPUB uses this cap and freezes at publish time.</p>
-      <label>
-        Paper includes stories rated
-        <select name="briefing_min_importance">
-          {% for value, label in importance_min_choices %}
-          <option value="{{ value }}" {% if briefing_min_importance == value %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <p class="hint">New stories get an importance score from 1 (ignore) to 5 (major). Favourites and Saved long-reads always stay in the paper.</p>
+      <h2>Publish</h2>
       <label>
         Publish at
         <input type="time" name="briefing_publish_at" value="{{ briefing_publish_at }}" />
@@ -166,6 +235,23 @@
         <input type="text" name="keyword_exclude" value="{{ keyword_exclude }}" autocomplete="off" placeholder="crypto, sport" />
       </label>
       <p class="hint">Comma-separated. Exclude wins. If include words are set, a story must match one of them. Each feed can add more words on Feeds. Favourites and Saved long-reads always stay.</p>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Save settings</button>
+  </div>
+
+  <div class="stack settings-panel" id="settings-panel-translation" role="tabpanel" data-settings-panel="translation" aria-labelledby="settings-tab-translation"{% if settings_tab != 'translation' %} hidden{% endif %}>
+    <div class="card stack">
+      <h2>Translate to English</h2>
+      <label>
+        Global provider
+        <select name="translate_provider">
+          {% for value, label in translate_providers %}
+          <option value="{{ value }}" {% if translate_provider == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Used when a feed is set to Translate (use global setting). Google uses the free web API with a Chrome fallback when rate-limited. LLM uses the provider and model on the LLM tab.</p>
+      <p class="hint">Each feed can still choose As published, follow this global setting, force Google, or force LLM under Feeds → Schedule &amp; filters.</p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>
@@ -312,34 +398,6 @@
       <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
       <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
       <p class="hint">{{ delivery.hint }}</p>
-    </div>
-
-    <div class="card stack" data-paper-naming>
-      <h2>Paper naming</h2>
-      <label>
-        Paper label
-        <input type="text" name="reader_paper_label" value="{{ reader_paper_label }}" autocomplete="off" placeholder="Morning paper" data-paper-label />
-      </label>
-      <p class="hint">Used by the <code>{label}</code> token. Leave blank to omit it.</p>
-      <label>
-        Paper title pattern
-        <input type="text" name="reader_title_pattern" value="{{ reader_title_pattern }}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="NewsCast - {hostname} {instance} {date}" data-paper-pattern maxlength="120" />
-      </label>
-      <div class="token-chips" role="group" aria-label="Insert pattern token">
-        {% for token, note in reader_title_tokens %}
-        <button class="chip-btn" type="button" data-paper-token="{{ '{' ~ token ~ '}' }}" title="{{ note }}">{{ '{' ~ token ~ '}' }}</button>
-        {% endfor %}
-      </div>
-      <p class="hint">Tap a token to insert it at the cursor. Hostname and instance come from the Device tab. Empty parts are dropped.</p>
-      <label>
-        Paper date format
-        <select name="reader_date_format" data-paper-date-format>
-          {% for value, label in reader_date_formats %}
-          <option value="{{ value }}" {% if reader_date_format == value %}selected{% endif %} data-paper-date-sample="{{ reader_date_previews[value] }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <p class="hint">Live preview: <strong data-paper-preview>{{ reader_title_preview }}</strong></p>
     </div>
     <button class="btn btn-primary btn-block" type="submit">Save settings</button>
   </div>

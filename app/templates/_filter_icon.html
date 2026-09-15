@@ -30,8 +30,12 @@
   <rect x="3.5" y="5.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 17.5V20"/>
   {%- elif name == "schedule" -%}
   <circle cx="12" cy="12" r="8"/><path d="M12 8v4.2L15 14"/>
+  {%- elif name == "publication" -%}
+  <path d="M5 6h11a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2V6z"/><path d="M7 6v11a2 2 0 0 0 2 2h10"/><path d="M9 10h6M9 13h6M9 16h4"/>
   {%- elif name == "filters" -%}
   <path d="M4 6h16l-6.2 7.4V18l-3.6 2v-6.6z"/>
+  {%- elif name == "translation" -%}
+  <path d="M4 6h7M7.5 6v2.5M5.5 16.5C7 12 9.5 9.5 12.5 8.5"/><path d="M13 7h7l-3.5 10h-2.2L13 7zM14.2 13.2h4.2"/>
   {%- elif name == "today" -%}
   <circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>
   {%- elif name == "yesterday" -%}

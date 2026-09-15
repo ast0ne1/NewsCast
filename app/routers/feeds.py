@@ -46,6 +46,7 @@ def _feed_dict(feed: Feed) -> dict:
         "interval_minutes": getattr(feed, "interval_minutes", None),
         "summarize": bool(getattr(feed, "summarize", True)),
         "translate": bool(getattr(feed, "translate", False)),
+        "translate_provider": getattr(feed, "translate_provider", None) or "global",
     }
 
 

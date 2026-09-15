@@ -158,8 +158,16 @@ def paper_download_name(db: Session, day: date, suffix: str = "epub") -> str:
 
 
 def day_from_briefing_path(path_stem: str) -> date | None:
-    raw = (path_stem or "").removeprefix("news-")
+    raw = (path_stem or "").strip()
+    if raw.lower().startswith("news-"):
+        raw = raw[5:]
+    day_text = raw[:10]
     try:
-        return date.fromisoformat(raw)
+        return date.fromisoformat(day_text)
     except ValueError:
         return None
+
+
+def paper_category_download_name(db: Session, day: date, category_label: str, suffix: str = "epub") -> str:
+    title = f"{paper_display_title(db, day)} - {category_label}".strip(" -")
+    return safe_filename(title, suffix=suffix)

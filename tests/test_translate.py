@@ -2,10 +2,36 @@ from app.services.translate import (
     _chunks,
     _join_segments,
     _unpack_story,
+    feed_translate_mode,
     looks_untranslated,
+    parse_feed_translate_mode,
+    resolve_provider,
     translate_story,
     translate_to_english,
 )
+
+
+class FakeFeed:
+    def __init__(self, translate=True, translate_provider="global"):
+        self.translate = translate
+        self.translate_provider = translate_provider
+
+
+def test_parse_feed_translate_mode():
+    assert parse_feed_translate_mode("off") == (False, "global")
+    assert parse_feed_translate_mode("0") == (False, "global")
+    assert parse_feed_translate_mode("1") == (True, "global")
+    assert parse_feed_translate_mode("global") == (True, "global")
+    assert parse_feed_translate_mode("google") == (True, "google")
+    assert parse_feed_translate_mode("llm") == (True, "llm")
+
+
+def test_resolve_provider_respects_feed_and_global():
+    assert resolve_provider(None, FakeFeed(translate=False)) is None
+    assert resolve_provider(None, FakeFeed(translate=True, translate_provider="llm")) == "llm"
+    assert resolve_provider(None, FakeFeed(translate=True, translate_provider="global"), global_provider="google") == "google"
+    assert feed_translate_mode(FakeFeed(False)) == "off"
+    assert feed_translate_mode(FakeFeed(True, "google")) == "google"
 
 
 def test_join_segments_reads_gtx_payload():
@@ -130,9 +156,46 @@ def test_translate_story_keeps_original_when_request_fails(monkeypatch):
 
     monkeypatch.setattr("app.services.translate.httpx.Client", FakeClient)
     monkeypatch.setattr("app.services.translate.time.sleep", lambda *_args: None)
-    title, excerpt = translate_story("Huset brænder", "Politiet er på vej.")
+    title, excerpt = translate_story("Huset brænder", "Politiet er på vej.", provider="google")
     assert title == "Huset brænder"
     assert excerpt == "Politiet er på vej."
+
+
+def test_translate_with_llm(monkeypatch):
+    from app.services.settings import LlmConfig
+
+    class FakeMessage:
+        content = "[[T]]\nThe house is burning\n[[B]]\nPolice are on the way."
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = FakeChat()
+
+    monkeypatch.setattr("app.services.translate.OpenAI", FakeOpenAI)
+    config = LlmConfig(
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="sk-test",
+        base_url=None,
+        ready=True,
+        label="OpenAI",
+    )
+    title, excerpt = translate_story("Huset brænder", "Politiet er på vej.", provider="llm", config=config)
+    assert title == "The house is burning"
+    assert "Police" in excerpt
 
 
 def test_unpack_story_splits_markers():

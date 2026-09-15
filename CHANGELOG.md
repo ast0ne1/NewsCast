@@ -1,6 +1,23 @@
 ﻿# Changelog
 
-Current version is **0.0.0.5**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.6**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.6 — 2026-09-15
+
+### Added
+- Settings Translation tab sets the global Translate to English engine: Google Translate (Chrome fallback) or the configured LLM
+- Each feed can choose As published, follow the global setting, force Google, or force LLM
+- Category mix can allocate Briefing and daily-paper slots by percentage (blank categories share the leftover; 0 excludes)
+- Optional per-category OPDS papers: tick topics to publish separate EPUBs listed under OPDS → Categories
+- Settings Publication tab (before Schedule) for paper composition settings
+
+### Changed
+- Briefing reloads automatically when a full refresh finishes, so new and translated stories appear without a manual reload
+- Settings Translation tab stays visible (it was incorrectly hidden by the client tab switcher)
+- Success toasts appear at the top-right on desktop so they stay clear of settings tabs and Save settings
+- Catalog cards keep category/type chips under the title beside Add/Remove, so the button no longer pushes them down
+- Paper naming moves from Reader to Publication; Briefing size and importance move from Schedule to Publication
+- Schedule keeps refresh timing and Publish at only
 
 ## 0.0.0.5 — 2026-09-14
 

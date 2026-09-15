@@ -138,23 +138,30 @@ async function send(url, options = {}) {
 function applyIngestStatus(data) {
   const pill = document.querySelector("[data-ingest-pill]");
   const refreshBtn = document.querySelector("[data-refresh]");
+  const running = Boolean(data.running);
   if (pill) {
-    pill.classList.toggle("is-busy", Boolean(data.running));
-    pill.classList.toggle("is-error", !data.running && Boolean(data.last_error));
-    if (data.running) {
+    pill.classList.toggle("is-busy", running);
+    pill.classList.toggle("is-error", !running && Boolean(data.last_error));
+    if (running) {
       pill.textContent = data.progress ? `Refreshing ${data.progress}` : "Refreshing";
     } else {
       pill.textContent = data.last_error ? "Error" : "Idle";
     }
   }
   if (refreshBtn) {
-    refreshBtn.disabled = Boolean(data.running);
-    refreshBtn.classList.toggle("is-busy", Boolean(data.running));
+    refreshBtn.disabled = running;
+    refreshBtn.classList.toggle("is-busy", running);
   }
   document.querySelectorAll("[data-feed-refresh]").forEach((button) => {
-    button.disabled = Boolean(data.running);
-    button.classList.toggle("is-busy", Boolean(data.running));
+    button.disabled = running;
+    button.classList.toggle("is-busy", running);
   });
+  if (ingestWasRunning && !running && document.querySelector("[data-briefing-list]")) {
+    ingestWasRunning = false;
+    window.location.reload();
+    return;
+  }
+  ingestWasRunning = running;
 }
 
 async function pollIngest() {
@@ -167,6 +174,7 @@ async function pollIngest() {
   }
 }
 
+let ingestWasRunning = Boolean(document.querySelector("[data-ingest-pill]")?.classList.contains("is-busy"));
 if (document.querySelector("[data-ingest-pill]")) {
   window.setInterval(pollIngest, 4000);
 }
@@ -568,7 +576,7 @@ document.querySelectorAll("[data-chip-group]").forEach((group) => {
 
 const settingsRoot = document.querySelector("[data-settings-tabs]");
 if (settingsRoot) {
-  const SETTINGS_SAVE_TABS = new Set(["device", "schedule", "filters", "llm", "reader", "update"]);
+  const SETTINGS_SAVE_TABS = new Set(["device", "schedule", "publication", "filters", "translation", "llm", "reader", "update"]);
   const settingsForm = settingsRoot.querySelector("[data-settings]");
   const settingsLede = document.querySelector("[data-settings-lede]");
   const settingsTabField = settingsRoot.querySelector("[data-settings-tab-field]");

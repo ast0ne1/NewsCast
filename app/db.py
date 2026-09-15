@@ -47,6 +47,14 @@ def _ensure_schema() -> None:
         if "translate" not in feed_cols:
             conn.execute(text("ALTER TABLE feeds ADD COLUMN translate BOOLEAN DEFAULT 0"))
             conn.execute(text("UPDATE feeds SET translate = 0 WHERE translate IS NULL"))
+        if "translate_provider" not in feed_cols:
+            conn.execute(text("ALTER TABLE feeds ADD COLUMN translate_provider VARCHAR(20) DEFAULT 'global'"))
+            conn.execute(
+                text(
+                    "UPDATE feeds SET translate_provider = 'global' "
+                    "WHERE translate_provider IS NULL OR translate_provider = ''"
+                )
+            )
         if "muted_until" not in feed_cols:
             conn.execute(text("ALTER TABLE feeds ADD COLUMN muted_until DATETIME"))
         if "keyword_include" not in feed_cols:

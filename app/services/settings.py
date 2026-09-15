@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -63,6 +64,12 @@ IMPORTANCE_MIN_CHOICES = [
 ]
 IMPORTANCE_MIN_VALUES = {value for value, _label in IMPORTANCE_MIN_CHOICES}
 DEFAULT_MIN_IMPORTANCE = 3
+TRANSLATE_PROVIDERS = [
+    ("google", "Google Translate (Chrome fallback)"),
+    ("llm", "Configured LLM (OpenAI or Ollama)"),
+]
+TRANSLATE_PROVIDER_IDS = {value for value, _label in TRANSLATE_PROVIDERS}
+DEFAULT_TRANSLATE_PROVIDER = "google"
 READER_DEVICES = [
     ("xteink", "Xteink — CrossPoint"),
     ("kobo", "Kobo — KOReader"),
@@ -108,11 +115,15 @@ UI_KEYS = (
     "ingest_active_end",
     "briefing_limit",
     "briefing_min_importance",
+    "briefing_category_mix",
+    "briefing_category_shares",
+    "briefing_category_opds_keys",
     "briefing_publish_at",
     "device_hostname",
     "github_repo",
     "keyword_include",
     "keyword_exclude",
+    "translate_provider",
     "reader_device",
     "reader_host",
     "reader_upload_path",
@@ -170,6 +181,8 @@ def _default_value(key: str) -> str:
         return str(DEFAULT_BRIEFING_LIMIT)
     if key == "briefing_min_importance":
         return str(DEFAULT_MIN_IMPORTANCE)
+    if key == "translate_provider":
+        return DEFAULT_TRANSLATE_PROVIDER
     if key == "briefing_publish_at":
         return "06:30"
     if key == "reader_device":
@@ -297,6 +310,95 @@ def briefing_limit(db: Session) -> int:
 def briefing_min_importance(db: Session) -> int:
     value = get_int(db, "briefing_min_importance", DEFAULT_MIN_IMPORTANCE)
     return value if value in IMPORTANCE_MIN_VALUES else DEFAULT_MIN_IMPORTANCE
+
+
+def briefing_category_mix_enabled(db: Session) -> bool:
+    return flag_enabled(db, "briefing_category_mix")
+
+
+def parse_category_opds_keys(raw: str | None) -> set[str]:
+    text = (raw or "").strip()
+    if not text:
+        return set()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return set()
+    if isinstance(payload, dict):
+        items = [key for key, value in payload.items() if value]
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        return set()
+    keys: set[str] = set()
+    for item in items:
+        slug = str(item or "").strip().lower()
+        if slug:
+            keys.add(slug)
+    return keys
+
+
+def encode_category_opds_keys(keys: set[str] | list[str]) -> str:
+    cleaned = sorted({str(key).strip().lower() for key in keys if str(key or "").strip()})
+    return json.dumps(cleaned, separators=(",", ":"))
+
+
+def briefing_category_opds_keys(db: Session) -> set[str]:
+    return parse_category_opds_keys(get_value(db, "briefing_category_opds_keys"))
+
+
+def category_opds_enabled(db: Session, category_key: str) -> bool:
+    slug = (category_key or "").strip().lower()
+    return bool(slug) and slug in briefing_category_opds_keys(db)
+
+
+def briefing_category_opds_enabled(db: Session) -> bool:
+    """True when at least one category is opted into OPDS papers."""
+    return bool(briefing_category_opds_keys(db))
+
+
+def parse_category_shares(raw: str | None) -> dict[str, int]:
+    """Return explicit category percentages. Missing keys share the leftover; 0 excludes."""
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    shares: dict[str, int] = {}
+    for key, value in payload.items():
+        slug = str(key or "").strip().lower()
+        if not slug:
+            continue
+        try:
+            percent = int(value)
+        except (TypeError, ValueError):
+            continue
+        if percent < 0:
+            continue
+        shares[slug] = min(percent, 100)
+    return shares
+
+
+def briefing_category_shares(db: Session) -> dict[str, int]:
+    return parse_category_shares(get_value(db, "briefing_category_shares"))
+
+
+def encode_category_shares(shares: dict[str, int]) -> str:
+    cleaned = {
+        str(key).strip().lower(): min(max(int(value), 0), 100)
+        for key, value in shares.items()
+        if str(key or "").strip()
+    }
+    return json.dumps(cleaned, sort_keys=True, separators=(",", ":"))
+
+
+def translate_provider(db: Session) -> str:
+    value = get_value(db, "translate_provider").strip().lower()
+    return value if value in TRANSLATE_PROVIDER_IDS else DEFAULT_TRANSLATE_PROVIDER
 
 
 def get_int(db: Session, key: str, fallback: int) -> int:

@@ -156,6 +156,7 @@ def import_package(db: Session, payload) -> dict:
                 type=feed.get("type") or "rss",
                 category=package["category"]["key"],
                 translate=bool(feed.get("translate")),
+                translate_provider="global",
             )
         )
         used_urls.add(feed["url"])

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import BRIEFING_DIR, env
 from app.models import Feed, Story, SyncTask, utcnow
 from app.services import settings
-from app.services.categories import BUILTIN_LABELS, DEFAULT_CATEGORY, category_labels
+from app.services.categories import BUILTIN_LABELS, DEFAULT_CATEGORY, category_labels, slugify
 from app.services.cover_image import render_newspaper_cover
 from app.services.filters import story_kept
 from app.services.paper_naming import (
@@ -27,8 +27,9 @@ from app.services.paper_naming import (
 BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
 MAX_BRIEFING_STORIES = 20
 BRIEFING_DAYS = {"today", "yesterday", "all"}
-BRIEFING_SAVE_RE = re.compile(r"(?:NewsCast|news)-(\d{4}-\d{2}-\d{2})\.(epub|txt)$", re.I)
+BRIEFING_SAVE_RE = re.compile(r"(?:NewsCast|news)-(\d{4}-\d{2}-\d{2})(?:-[a-z0-9-]+)?\.(epub|txt)$", re.I)
 ISO_DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CATEGORY_PAPER_STEM_RE = re.compile(r"^news-(\d{4}-\d{2}-\d{2})-([a-z0-9-]+)$", re.I)
 KEEP_DATED_BRIEFINGS = 7
 DEFAULT_PUBLISH_AT = "06:30"
 SAVED_CATEGORY = "longreads"
@@ -287,6 +288,105 @@ def _diverse_recent(stories: list[Story], limit: int) -> list[Story]:
     return picked
 
 
+def seats_from_percents(limit: int, percents: dict[str, float]) -> dict[str, int]:
+    if limit <= 0 or not percents:
+        return {key: 0 for key in percents}
+    raw = {key: limit * (value / 100.0) for key, value in percents.items()}
+    floors = {key: int(value) for key, value in raw.items()}
+    remaining = limit - sum(floors.values())
+    order = sorted(
+        raw.keys(),
+        key=lambda key: (raw[key] - floors[key], percents[key], key),
+        reverse=True,
+    )
+    for key in order[: max(0, remaining)]:
+        floors[key] += 1
+    return floors
+
+
+def category_slot_targets(
+    limit: int,
+    shares: dict[str, int],
+    category_keys: list[str],
+) -> dict[str, int]:
+    """Map categories to story counts. Explicit % win slots; blank keys share leftover; 0 excludes."""
+    keys = [key for key in category_keys if key]
+    if limit <= 0 or not keys:
+        return {key: 0 for key in keys}
+
+    fixed = {key: shares[key] for key in keys if key in shares and shares[key] > 0}
+    excluded = {key for key in keys if shares.get(key) == 0}
+    auto = [key for key in keys if key not in fixed and key not in excluded]
+
+    fixed_sum = sum(fixed.values())
+    if fixed_sum > 100 and fixed:
+        scaled = {key: (value * 100.0) / fixed_sum for key, value in fixed.items()}
+        targets = seats_from_percents(limit, scaled)
+        return {key: targets.get(key, 0) if key not in excluded else 0 for key in keys}
+
+    remaining_pct = max(0, 100 - fixed_sum)
+    percents: dict[str, float] = {key: float(value) for key, value in fixed.items()}
+    if auto and remaining_pct > 0:
+        each = remaining_pct / len(auto)
+        for key in auto:
+            percents[key] = each
+    elif not auto and remaining_pct > 0 and fixed:
+        boost = remaining_pct / len(fixed)
+        for key in fixed:
+            percents[key] = fixed[key] + boost
+
+    targets = seats_from_percents(limit, percents) if percents else {}
+    return {key: targets.get(key, 0) if key not in excluded else 0 for key in keys}
+
+
+def _pick_by_category_mix(
+    stories: list[Story],
+    feeds: dict[str, Feed],
+    limit: int,
+    shares: dict[str, int],
+) -> list[Story]:
+    if limit <= 0 or not stories:
+        return []
+
+    by_category: dict[str, list[Story]] = {}
+    for story in stories:
+        key = _story_category(story, feeds)
+        by_category.setdefault(key, []).append(story)
+    for key, group in list(by_category.items()):
+        by_category[key] = _diverse_recent(group, len(group))
+
+    category_keys = sorted(set(by_category) | set(shares))
+    targets = category_slot_targets(limit, shares, category_keys)
+
+    picked: list[Story] = []
+    seen: set[int] = set()
+    leftovers: list[Story] = []
+    for key in category_keys:
+        pool = by_category.get(key, [])
+        take = targets.get(key, 0)
+        for story in pool[:take]:
+            if story.id in seen:
+                continue
+            picked.append(story)
+            seen.add(story.id)
+        leftovers.extend(story for story in pool[take:] if story.id not in seen)
+
+    if len(picked) < limit:
+        leftovers.sort(
+            key=lambda story: story.published_at or story.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        for story in leftovers:
+            if len(picked) >= limit:
+                break
+            if story.id in seen:
+                continue
+            picked.append(story)
+            seen.add(story.id)
+
+    return picked[:limit]
+
+
 def current_stories(db: Session, limit: int | None = None, day: str | None = None) -> list[Story]:
     if limit is None:
         limit = settings.briefing_limit(db)
@@ -302,28 +402,43 @@ def current_stories(db: Session, limit: int | None = None, day: str | None = Non
         .order_by(age.desc())
         .all()
     )
+    pool_size = max(limit * 8, 80) if settings.briefing_category_mix_enabled(db) else max(limit * 4, 40)
     recent = (
         db.query(Story)
         .filter(or_(Story.favourited.is_(False), Story.favourited.is_(None)))
         .filter(or_(Story.saved.is_(False), Story.saved.is_(None)))
         .filter(age >= cutoff)
         .order_by(age.desc())
-        .limit(max(limit * 4, 40))
+        .limit(pool_size)
         .all()
     )
     favourites = [story for story in favourites if _in_day(story, window)]
     recent = [story for story in recent if _in_day(story, window)]
-    recent = _diverse_recent(recent, limit)
+
+    feeds = {feed.name: feed for feed in db.query(Feed).all()}
+    saved = _apply_keyword_filters(db, saved)
+    favourites = _apply_keyword_filters(db, favourites)
+    recent = _apply_importance_filter(db, _apply_keyword_filters(db, recent))
+
+    if settings.briefing_category_mix_enabled(db):
+        selected = _pick_by_category_mix(
+            recent,
+            feeds,
+            limit,
+            settings.briefing_category_shares(db),
+        )
+    else:
+        selected = _diverse_recent(recent, limit)
+
     seen = {story.id for story in saved}
     stories = [*saved]
-    for story in [*favourites, *recent]:
+    for story in [*favourites, *selected]:
         if story.id not in seen:
             stories.append(story)
             seen.add(story.id)
     feed_stories = [story for story in stories if not story.saved]
     feed_stories.sort(key=lambda story: story.published_at or story.created_at or cutoff, reverse=True)
-    filtered = _apply_keyword_filters(db, [*saved, *feed_stories])
-    return _apply_importance_filter(db, filtered)
+    return [*[story for story in stories if story.saved], *feed_stories]
 
 
 def search_stories(db: Session, query: str, limit: int = 50) -> list[Story]:
@@ -421,8 +536,22 @@ def dated_stem(day: date) -> str:
     return f"news-{day.isoformat()}"
 
 
+def dated_category_stem(day: date, category: str) -> str:
+    slug = slugify(category) or DEFAULT_CATEGORY
+    return f"news-{day.isoformat()}-{slug}"
+
+
 def dated_briefing_path(day: date, suffix: str = "epub") -> Path:
     return BRIEFING_DIR / f"{dated_stem(day)}.{suffix}"
+
+
+def dated_category_path(day: date, category: str, suffix: str = "epub") -> Path:
+    return BRIEFING_DIR / f"{dated_category_stem(day, category)}.{suffix}"
+
+
+def parse_category_from_stem(stem: str) -> str | None:
+    match = CATEGORY_PAPER_STEM_RE.match((stem or "").strip())
+    return match.group(2).lower() if match else None
 
 
 def _local_today(now: datetime | None = None) -> date:
@@ -436,18 +565,21 @@ def frozen_briefing_path(
     suffix: str = "epub",
     fallback: bool = True,
     now: datetime | None = None,
+    category: str | None = None,
 ) -> Path | None:
     key = normalize_briefing_day(day)
     target = paper_day_for(key, now=now)
     if target is None:
         return None
-    path = dated_briefing_path(target, suffix)
+    slug = slugify(category or "") if category else ""
+    path = dated_category_path(target, slug, suffix) if slug else dated_briefing_path(target, suffix)
     if path.exists():
         return path
     if fallback and key == "today":
-        yesterday = dated_briefing_path(_local_today(now) - timedelta(days=1), suffix)
-        if yesterday.exists():
-            return yesterday
+        yesterday = _local_today(now) - timedelta(days=1)
+        prior = dated_category_path(yesterday, slug, suffix) if slug else dated_briefing_path(yesterday, suffix)
+        if prior.exists():
+            return prior
     return None
 
 
@@ -461,17 +593,87 @@ def available_daily_papers(*, now: datetime | None = None, days: int = 2) -> lis
     return found
 
 
+def available_category_papers(
+    category: str,
+    *,
+    now: datetime | None = None,
+    days: int = 2,
+) -> list[date]:
+    slug = slugify(category)
+    if not slug:
+        return []
+    today = _local_today(now)
+    found: list[date] = []
+    for offset in range(max(1, days)):
+        day = today - timedelta(days=offset)
+        if dated_category_path(day, slug).exists():
+            found.append(day)
+    return found
+
+
+def category_keys_with_papers(*, now: datetime | None = None, days: int = 2) -> list[str]:
+    today = _local_today(now)
+    found: set[str] = set()
+    for offset in range(max(1, days)):
+        day = today - timedelta(days=offset)
+        for path in BRIEFING_DIR.glob(f"news-{day.isoformat()}-*.epub"):
+            key = parse_category_from_stem(path.stem)
+            if key:
+                found.add(key)
+    return sorted(found)
+
+
+def write_category_briefing_files(db: Session, payload: dict, day: date) -> list[Path]:
+    enabled = settings.briefing_category_opds_keys(db)
+    for path in BRIEFING_DIR.glob(f"news-{day.isoformat()}-*.epub"):
+        key = parse_category_from_stem(path.stem)
+        if key and key not in enabled:
+            path.unlink(missing_ok=True)
+            path.with_suffix(".txt").unlink(missing_ok=True)
+    if not enabled:
+        return []
+    labels = category_labels(db)
+    grouped: dict[str, list[dict]] = {}
+    for story in payload.get("stories") or []:
+        key = slugify(str(story.get("category") or DEFAULT_CATEGORY)) or DEFAULT_CATEGORY
+        if key not in enabled:
+            continue
+        grouped.setdefault(key, []).append(story)
+
+    written: list[Path] = []
+    base_title = payload.get("paper_title") or payload.get("title") or briefing_title()
+    for key, stories in grouped.items():
+        if not stories:
+            continue
+        label = labels.get(key) or stories[0].get("category_label") or key
+        cat_payload = dict(payload)
+        cat_payload["stories"] = stories
+        cat_payload["title"] = f"{base_title} · {label}"
+        cat_payload["paper_title"] = cat_payload["title"]
+        paths = write_briefing_files(cat_payload, stem=dated_category_stem(day, key))
+        written.append(paths["epub"])
+    return written
+
+
 def prune_old_briefings(keep: int = KEEP_DATED_BRIEFINGS) -> int:
-    files = sorted(BRIEFING_DIR.glob("news-????-??-??.epub"), reverse=True)
-    keep_stems = {path.stem for path in files[:keep]}
+    from app.services.paper_naming import day_from_briefing_path
+
+    main_files = sorted(BRIEFING_DIR.glob("news-????-??-??.epub"), reverse=True)
+    keep_days = {day_from_briefing_path(path.stem) for path in main_files[:keep]}
+    keep_days.discard(None)
     removed = 0
-    for path in files[keep:]:
+    for path in BRIEFING_DIR.glob("news-*.epub"):
+        day = day_from_briefing_path(path.stem)
+        if day is None or day in keep_days:
+            continue
         path.unlink(missing_ok=True)
         path.with_suffix(".txt").unlink(missing_ok=True)
         removed += 1
-    for path in BRIEFING_DIR.glob("news-????-??-??.txt"):
-        if path.stem not in keep_stems:
-            path.unlink(missing_ok=True)
+    for path in BRIEFING_DIR.glob("news-*.txt"):
+        day = day_from_briefing_path(path.stem)
+        if day is None or day in keep_days:
+            continue
+        path.unlink(missing_ok=True)
     return removed
 
 
@@ -521,6 +723,7 @@ def publish_daily_briefing(
         payload["date_label"] = format_paper_date(day, reader_date_format(db))
         payload["paper_title"] = paper_display_title(db, day)
         write_briefing_files(payload, stem=dated_stem(day))
+        write_category_briefing_files(db, payload, day)
     prune_old_briefings()
     if created:
         enqueue_latest_briefing(db)
