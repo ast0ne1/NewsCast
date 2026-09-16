@@ -94,13 +94,19 @@ Use the first number it prints, for example `http://192.168.1.20:8080`.
 
 ### Optional LAN HTTPS
 
-HTTPS is **off by default**. Turn it on under **Settings → General** only after a TLS reverse proxy (for example Caddy) is in front of NewsCast.
+HTTPS is **off by default**. Turn it on under **Settings → General → Use HTTPS on the LAN**. NewsCast creates a household certificate and serves HTTPS on the **same port** (usually 8080). The app restarts after you save.
 
-1. Copy `deploy/Caddyfile` and adjust the hostname/port if needed.
-2. Point Caddy at uvicorn on `127.0.0.1` (set `HOST=127.0.0.1` for NewsCast so LAN clients cannot skip TLS).
-3. Enable **Require HTTPS** in General, then trust Caddy’s local CA on phones and PCs the first time you connect.
+1. Set a **Hostname** first if you want `https://newscast.local:8080` (recommended).
+2. Enable **Use HTTPS on the LAN** and save. Wait for the restart.
+3. Open `https://newscast.local:8080` (or `https://<pi-ip>:8080`).
+4. Download the **root CA** from Settings → General and trust it once on each phone or PC:
 
-Until HTTPS is on, passwords travel in cleartext on the Wi‑Fi. Password hashing at rest is always on.
+   - **Windows:** double-click the `.pem`, Install Certificate → Local Machine → Trusted Root Certification Authorities.
+   - **iPhone:** AirDrop or download the file in Safari → Settings → General → VPN & Device Management → install the profile → Settings → General → About → Certificate Trust Settings → enable full trust.
+   - **Android:** Settings → Security → Encryption & credentials → Install a certificate → CA certificate (wording varies by manufacturer).
+
+Until HTTPS is on, passwords travel in cleartext on the Wi‑Fi. Password hashing at rest is always on. Treat NewsCast as a **trusted home-network** service (prefer the home SSID; avoid exposing the port to the internet). Xteink Sync stays reachable on the LAN without a separate login — that is intentional so Sync on the reader keeps working.
+
 
 ### Household accounts (optional)
 

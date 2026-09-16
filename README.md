@@ -24,8 +24,8 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 - Exposes an OPDS catalog for CrossPoint and KOReader (`/opds` for admin, `/opds/u/<username>` per household member), plus JSON / TXT / EPUB briefing downloads (EPUB/TXT freeze at the daily publish time)
 - Queues EPUB or PDF files as-is for the next reader sync (not summarised)
 - Optional ntfy phone alerts when today’s paper is published and/or reaches the reader (admin always; other users only when allowed)
-- Opt-in LAN HTTPS behind a reverse proxy (for example Caddy); Secure cookies when enabled
-- Admin backup/restore of the database, settings, library, briefings, and feed cache
+- Opt-in LAN HTTPS with an in-app local CA (same port as HTTP); Secure cookies when enabled
+- Admin backup/restore of the database, settings, library, briefings, feed cache, and TLS certificates
 
 ## Web UI
 
@@ -156,7 +156,7 @@ Environment variables in `.env` are deploy-time defaults. Settings can override 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOST` / `PORT` | `0.0.0.0` / `8080` | Bind address. Use 8080 on Windows so another app is less likely to block start. For HTTPS behind Caddy, bind `127.0.0.1` so LAN clients cannot skip TLS |
+| `HOST` / `PORT` | `0.0.0.0` / `8080` | Bind address. Use 8080 on Windows so another app is less likely to block start. In-app HTTPS uses this same port |
 | `DATABASE_URL` | `sqlite:///./data/newscast.db` | SQLite path |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | Web UI login (hashed at rest after first run) |
 | `SESSION_SECRET` | generated into `data/session.secret` | Signs the login cookie (stdlib HMAC) |
@@ -176,11 +176,11 @@ Environment variables in `.env` are deploy-time defaults. Settings can override 
 | `X3_DEVICE_ID` | empty | Device id for Sync tasks |
 | `X3_BRIEFING_FORMAT` | `txt` | `txt` or `epub` for the Sync briefing file |
 | `X3_SAVE_PATH` | `/Pushed Files/NewsCast/` | Folder the Sync firmware writes into on the reader |
-| `PUBLIC_BASE_URL` | `http://127.0.0.1:8080` | Catalog and sync file URLs when no hostname is set. Localhost falls back to the detected LAN IP; becomes `https://…` when Require HTTPS is on |
+| `PUBLIC_BASE_URL` | `http://127.0.0.1:8080` | Catalog and sync file URLs when no hostname is set. Localhost falls back to the detected LAN IP; becomes `https://…` when Use HTTPS is on |
 | `DEVICE_HOSTNAME` | empty | Pi / `.local` name; also editable on Settings |
 | `GITHUB_REPO` | empty | `owner/NewsCast` for in-app GitHub Release checks; also set on Settings |
 
-The LAN UI is HTTP by default. Turn on **Require HTTPS** under Settings → General only after a TLS reverse proxy (for example Caddy; see `deploy/Caddyfile` and [INSTALL.md](INSTALL.md)) is in front of NewsCast. Treat the OpenAI key as only as safe as your local network.
+The LAN UI is HTTP by default. Turn on **Use HTTPS on the LAN** under Settings → General to generate a local CA and serve TLS on the same port (see [INSTALL.md](INSTALL.md)). Download the root CA and trust it once on each phone or PC. Treat the OpenAI key and backup zips as only as safe as your local network.
 
 ## Tests
 

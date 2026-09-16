@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app import __version__
-from app.config import BACKUPS_DIR, BRIEFING_DIR, DATA_DIR, LIBRARY_DIR, ROOT_DIR
+from app.config import BACKUPS_DIR, BRIEFING_DIR, DATA_DIR, LIBRARY_DIR, ROOT_DIR, TLS_DIR
 from app.db import engine
 
 FORMAT = "newscast-backup"
@@ -90,6 +90,7 @@ def write_backup(dest: Path | None = None) -> Path:
         _add_tree(archive, LIBRARY_DIR, "library")
         _add_tree(archive, BRIEFING_DIR, "briefings")
         _add_tree(archive, CACHE_DIR, "cache")
+        _add_tree(archive, TLS_DIR, "tls")
     return dest
 
 
@@ -125,6 +126,7 @@ def restore_backup(payload: bytes | Path) -> None:
         LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
         BRIEFING_DIR.mkdir(parents=True, exist_ok=True)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        TLS_DIR.mkdir(parents=True, exist_ok=True)
         try:
             engine.dispose()
         except Exception:
@@ -141,3 +143,5 @@ def restore_backup(payload: bytes | Path) -> None:
             _restore_tree(archive, names, "briefings", BRIEFING_DIR)
         if any(name.startswith("cache/") for name in names):
             _restore_tree(archive, names, "cache", CACHE_DIR)
+        if any(name.startswith("tls/") for name in names):
+            _restore_tree(archive, names, "tls", TLS_DIR)

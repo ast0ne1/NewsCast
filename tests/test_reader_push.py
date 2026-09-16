@@ -96,6 +96,32 @@ def test_queue_label_distinguishes_briefing_and_send(monkeypatch):
     assert reader_push.queue_label(send) == "File · notes"
 
 
+def test_queue_items_lists_today_then_older_papers_then_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.reader_push.datetime",
+        type("DT", (), {"now": staticmethod(lambda: datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc))}),
+    )
+    db = _session()
+    older = tmp_path / "news-2026-09-14.epub"
+    mid = tmp_path / "news-2026-09-15.epub"
+    today = tmp_path / "news-2026-09-16.epub"
+    send = tmp_path / "notes.epub"
+    for path in (older, mid, today, send):
+        path.write_bytes(b"epub")
+    # Enqueue oldest first so FIFO would list Send/older before today.
+    enqueue_sync_file(db, send, "notes.epub", kind="crosspoint", save_path="/News/notes.epub")
+    enqueue_sync_file(db, older, "old.epub", kind="crosspoint", save_path="/News/old.epub")
+    enqueue_sync_file(db, mid, "mid.epub", kind="crosspoint", save_path="/News/mid.epub")
+    enqueue_sync_file(db, today, "today.epub", kind="crosspoint", save_path="/News/today.epub")
+    labels = [item["label"] for item in reader_push.queue_items(db)]
+    assert labels == [
+        "Today's paper",
+        "Paper · 15 Sep 2026",
+        "Paper · 14 Sep 2026",
+        "File · notes",
+    ]
+
+
 def test_upload_marks_complete(tmp_path: Path, monkeypatch):
     db = _session()
     path = tmp_path / "news.epub"

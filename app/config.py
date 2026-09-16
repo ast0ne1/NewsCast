@@ -11,6 +11,7 @@ BUNDLED_FAVICON_DIR = ROOT_DIR / "app" / "data" / "favicons"
 PACKAGES_DIR = DATA_DIR / "packages"
 BACKUPS_DIR = DATA_DIR / "backups"
 UPDATES_DIR = DATA_DIR / "updates"
+TLS_DIR = DATA_DIR / "tls"
 
 
 class EnvSettings(BaseSettings):

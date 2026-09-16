@@ -10,6 +10,4 @@ if [[ -f /opt/newscast/.env ]]; then
   set +a
 fi
 
-exec /opt/newscast/.venv/bin/uvicorn app.main:app \
-  --host "${HOST:-0.0.0.0}" \
-  --port "${PORT:-8080}"
+exec /opt/newscast/.venv/bin/python -m app.serve

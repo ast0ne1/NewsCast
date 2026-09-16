@@ -159,6 +159,24 @@ def queue_label(task: SyncTask) -> str:
     return f"File · {stem}"
 
 
+def _queue_display_sort_key(task: SyncTask) -> tuple:
+    """Today's paper first, then older papers (newest date first), then Send files (newest queued first)."""
+    from app.services.delivery import briefing_day_for_task
+
+    today = datetime.now().astimezone().date()
+    day = briefing_day_for_task(task)
+    created = task.created_at or datetime.min.replace(tzinfo=timezone.utc)
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    # Negate timestamps so newer sorts first within a group.
+    created_rank = -created.timestamp()
+    if day == today:
+        return (0, created_rank)
+    if day is not None:
+        return (1, -day.toordinal(), created_rank)
+    return (2, created_rank)
+
+
 def _created_label(value: datetime | None) -> str:
     if value is None:
         return ""
@@ -168,7 +186,7 @@ def _created_label(value: datetime | None) -> str:
 
 def queue_items(db: Session) -> list[dict]:
     items = []
-    for task in pending_crosspoint(db):
+    for task in sorted(pending_crosspoint(db), key=_queue_display_sort_key):
         name = Path(task.save_path or task.file_path).name
         items.append(
             {

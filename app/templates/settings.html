@@ -87,9 +87,9 @@
       </label>
       <p class="hint">
         {% if device_hostname %}
-          LAN address is <strong>http://{{ device_hostname }}.local:{{ app_port }}</strong>.
+          LAN address is <strong>{{ 'https' if https_enabled else 'http' }}://{{ device_hostname }}.local:{{ app_port }}</strong>.
         {% else %}
-          Optional. On a Pi this is also the device name, so you can open <strong>http://name.local:{{ app_port }}</strong> instead of the IP.
+          Optional. On a Pi this is also the device name, so you can open <strong>{{ 'https' if https_enabled else 'http' }}://name.local:{{ app_port }}</strong> instead of the IP.
         {% endif %}
       </p>
       <label>
@@ -99,9 +99,35 @@
       <p class="hint">Shown on the reader briefing so you can tell this copy from another. The reader talks to one NewsCast at a time — point it at this machine’s URL, or at your other copy.</p>
       <label class="check">
         <input type="checkbox" name="https_enabled" value="1" {% if https_enabled %}checked{% endif %} />
-        Require HTTPS on the LAN (reverse proxy / Caddy)
+        Use HTTPS on the LAN
       </label>
-      <p class="hint">Off by default. Turn on only after Caddy (or another TLS proxy) is in front of NewsCast. Session cookies become Secure and share links use https.</p>
+      <p class="hint">
+        Off by default. When you turn this on, NewsCast creates a local certificate for port {{ app_port }}. Download the root CA and trust it on each device, then restart to begin serving HTTPS — see INSTALL.md.
+      </p>
+      {% if tls_pending_restart %}
+      <p class="banner banner-muted">
+        HTTPS is saved but NewsCast is still on <strong>http://</strong> until you restart. Download the root CA now, then tap <strong>Restart to enable HTTPS</strong>. After that, always open <strong>{{ https_share_url }}</strong> (not http://).
+      </p>
+      {% elif https_enabled and https_share_url %}
+      <p class="hint">Open NewsCast at <strong>{{ https_share_url }}</strong> (bookmark this; http:// will not work).</p>
+      {% endif %}
+      {% if tls_status and tls_status.ca_present %}
+      <p class="hint">
+        {% if tls_status.ready %}Certificate ready{% else %}Certificate needs attention{% endif %}{% if tls_status.not_after %} until {{ tls_status.not_after }}{% endif %}.
+        {% if tls_status.sans %}Names: {{ tls_status.sans | join(', ') }}.{% endif %}
+        {{ tls_status.message }}
+      </p>
+      <div class="stack">
+        <a class="btn btn-secondary btn-block btn-with-icon" href="{{ tls_download_url }}">{{ icon("download") }} Download root CA</a>
+        {% if tls_pending_restart %}
+        <form method="post" action="/settings/tls/restart" data-native>
+          <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("restart") }} Restart to enable HTTPS</button>
+        </form>
+        {% endif %}
+      </div>
+      {% elif https_enabled %}
+      <p class="hint">{{ tls_status.message if tls_status else 'Turn HTTPS off and on again if the certificate is missing.' }}</p>
+      {% endif %}
     </div>
     {% endif %}
     <div class="card stack">
@@ -356,7 +382,7 @@
             <option value="">Choose…</option>
           </select>
         </label>
-        <button class="btn btn-secondary" type="button" data-load-ollama>Load from Ollama</button>
+        <button class="btn btn-secondary btn-with-icon" type="button" data-load-ollama>{{ icon("load") }} Load from Ollama</button>
       </div>
     </div>
     <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
@@ -533,7 +559,7 @@
 {% if is_admin %}
 <div class="stack settings-panel" id="settings-panel-users" role="tabpanel" data-settings-panel="users" aria-labelledby="settings-tab-users"{% if settings_tab != 'users' %} hidden{% endif %}>
   <div class="card stack">
-    <h2>People</h2>
+    <h2>Users</h2>
     <p class="lede">Each person keeps their own feeds, papers, library, and reader catalog. You control what they can change.</p>
     {% if users_notice %}
     <p class="hint users-notice" role="status">{{ users_notice }}</p>
@@ -650,7 +676,7 @@
           </label>
         </fieldset>
 
-        <button class="btn btn-primary" type="submit">Save {{ user.username }}</button>
+        <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("check") }} Save user</button>
       </form>
       <form
         method="post"
@@ -707,7 +733,7 @@
           </span>
         </label>
       </fieldset>
-      <button class="btn btn-primary" type="submit">Create account</button>
+      <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("plus") }} Create account</button>
     </form>
   </div>
 </div>
@@ -719,16 +745,16 @@
     {% if latest_backup %}
     <p class="hint">Last automatic backup: {{ latest_backup.name }}</p>
     {% endif %}
-    <a class="btn btn-secondary" href="/settings/backup">Download backup</a>
+    <a class="btn btn-secondary btn-with-icon" href="/settings/backup">{{ icon("download") }} Download backup</a>
     <form class="backup-restore" method="post" action="/settings/backup/restore" data-confirm="Restore this backup?" data-confirm-detail="Feeds, stories, and settings will be replaced by the file you choose." data-confirm-ok="Restore">
       <label>
         Restore from file
         <input type="file" name="file" accept=".zip,application/zip" required />
       </label>
-      <button class="btn btn-secondary" type="submit">Restore backup</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("upload") }} Restore backup</button>
     </form>
     <form method="post" action="/settings/updates/rollback" data-confirm="Roll back to the previous app?" data-confirm-detail="This puts the last-good app files back and restarts. Your data stay as they are." data-confirm-ok="Roll back">
-      <button class="btn btn-secondary" type="submit">Roll back last app</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("restart") }} Roll back last app</button>
     </form>
   </div>
 </div>
@@ -737,7 +763,7 @@
   <div class="card stack">
     <h2>Check and install</h2>
     <form method="post" action="/settings/updates/check">
-      <button class="btn btn-secondary" type="submit">Check for updates</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("update") }} Check for updates</button>
     </form>
     {% if update_check.newer and update_check.valid %}
     <form method="post" action="/settings/updates/install" data-confirm="Install {{ update_check.tag }}?" data-confirm-detail="NewsCast will back up your data, then replace the app and restart." data-confirm-ok="Install">
@@ -781,7 +807,7 @@
         New category
         <input type="text" name="label" required autocomplete="off" placeholder="Example" />
       </label>
-      <button class="btn btn-secondary" type="submit">Add category</button>
+      <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("plus") }} Add category</button>
     </form>
   </div>
 </div>
@@ -797,7 +823,7 @@
           Import package
           <input type="file" name="file" accept=".json,application/json" required />
         </label>
-        <button class="btn btn-secondary" type="submit">Import</button>
+        <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("import") }} Import</button>
       </form>
       <form method="get" action="/catalog/packages/export" data-native>
         <label>
@@ -808,7 +834,7 @@
             {% endfor %}
           </select>
         </label>
-        <button class="btn btn-secondary" type="submit">Export</button>
+        <button class="btn btn-secondary btn-with-icon" type="submit">{{ icon("export") }} Export</button>
       </form>
     </div>
   </div>
@@ -818,8 +844,8 @@
     <p class="hint">Non-admin users only see and can Add sources you tick here. You still see the full Catalog.</p>
     <form method="post" action="/settings/catalog/approvals" class="stack">
       <div class="toolbar" style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button type="button" class="btn btn-ghost" data-check-set="catalog-approvals" data-check-value="1">Select all</button>
-        <button type="button" class="btn btn-ghost" data-check-set="catalog-approvals" data-check-value="0">Unselect all</button>
+        <button type="button" class="btn btn-ghost btn-with-icon" data-check-set="catalog-approvals" data-check-value="1">{{ icon("select-all") }} Select all</button>
+        <button type="button" class="btn btn-ghost btn-with-icon" data-check-set="catalog-approvals" data-check-value="0">{{ icon("unselect-all") }} Unselect all</button>
       </div>
       <div class="category-opds-grid" data-check-group="catalog-approvals">
         {% for item in catalog_for_approval %}
@@ -829,7 +855,7 @@
         </label>
         {% endfor %}
       </div>
-      <button class="btn btn-primary" type="submit">Save approvals</button>
+      <button class="btn btn-primary btn-with-icon" type="submit">{{ icon("check") }} Save approvals</button>
     </form>
   </div>
   {% endif %}

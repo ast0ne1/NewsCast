@@ -33,6 +33,6 @@ if "!FOUND!"=="1" (
     echo No existing listener on port %PORT%.
 )
 
-echo Starting NewsCast at http://127.0.0.1:%PORT%
-".venv\Scripts\python.exe" -m uvicorn app.main:app --host 0.0.0.0 --port %PORT%
+echo Starting NewsCast at http://127.0.0.1:%PORT% (HTTPS if enabled in Settings)
+".venv\Scripts\python.exe" -m app.serve
 endlocal

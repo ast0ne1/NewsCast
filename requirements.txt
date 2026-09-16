@@ -14,4 +14,5 @@ segno==1.6.6
 paramiko==3.5.1
 Pillow==11.3.0
 argon2-cffi==25.1.0
+cryptography==45.0.7
 pytest==8.4.2

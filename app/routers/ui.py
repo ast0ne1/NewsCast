@@ -28,7 +28,7 @@ from app.auth import (
 from app.config import ROOT_DIR, env
 from app.db import get_db
 from app.models import Feed, LibraryFile, Story, SyncTask, User, utcnow
-from app.services import backup, favicon, hostname, i18n, library, ntfy, paper_naming, passwords, qrcode, reader_push, settings, translate, update
+from app.services import backup, favicon, hostname, i18n, library, ntfy, paper_naming, passwords, qrcode, reader_push, settings, tls, translate, update
 from app.services import users as users_service
 from app.services import user_settings as user_settings_service
 from app.services.briefing import (
@@ -737,6 +737,10 @@ def _settings_page_context(request: Request, db: Session, tab: str = "device") -
         "ntfy_notify_on_publish": user_settings_service.flag_enabled(db, uid, "ntfy_notify_on_publish"),
         "ntfy_notify_on_push": user_settings_service.flag_enabled(db, uid, "ntfy_notify_on_push"),
         "https_enabled": settings.https_enabled(db),
+        "tls_status": tls.certificate_status(db),
+        "tls_download_url": f"{str(request.base_url).rstrip('/')}/settings/tls/root-ca.pem",
+        "https_share_url": hostname.get_share_url(db) if settings.https_enabled(db) else "",
+        "tls_pending_restart": settings.https_enabled(db) and request.url.scheme != "https",
         "ui_lang": settings.resolve_ui_lang(db, user_id=uid),
         "ui_lang_choices": settings.UI_LANG_CHOICES,
         "household_users": users_service.list_users(db),
@@ -1194,9 +1198,27 @@ async def save_settings(
                 db.commit()
             reauth = True
 
+    turning_https_on = False
+    turning_https_off = False
+    hostname_cert_renewed = False
     if is_admin:
-        https_enabled = str(form.get("https_enabled") or "").strip()
-        settings.set_value(db, "https_enabled", "1" if https_enabled else "0")
+        previous_https = settings.https_enabled(db)
+        want_https = bool(str(form.get("https_enabled") or "").strip())
+        turning_https_on = want_https and not previous_https
+        turning_https_off = previous_https and not want_https
+        if want_https:
+            try:
+                tls.ensure_certificate(db)
+            except Exception:
+                logger.exception("TLS certificate generation failed")
+                return _settings_error(
+                    request,
+                    "Could not create the local HTTPS certificate. Check disk space and try again.",
+                    tab,
+                )
+        settings.set_value(db, "https_enabled", "1" if want_https else "0")
+    else:
+        want_https = settings.https_enabled(db)
     ui_lang = str(form.get("ui_lang") or settings.DEFAULT_UI_LANG).strip().lower()
     allowed_langs = {code for code, _label in settings.UI_LANG_CHOICES}
     if ui_lang not in allowed_langs:
@@ -1334,6 +1356,8 @@ async def save_settings(
 
     if is_admin:
         wanted_host = hostname.normalize_hostname(device_hostname)
+        previous_host = hostname.normalize_hostname(settings.get_value(db, "device_hostname"))
+        hostname_changed = wanted_host != previous_host
         if wanted_host:
             if not hostname.valid_hostname(wanted_host):
                 return _settings_error(request, "Hostname must be letters, digits, or hyphens.", tab)
@@ -1341,6 +1365,18 @@ async def save_settings(
             hostname.apply_os_hostname(wanted_host)
         else:
             settings.clear_value(db, "device_hostname")
+        if want_https:
+            try:
+                tls.ensure_certificate(db)
+            except Exception:
+                logger.exception("TLS certificate refresh after hostname save failed")
+                return _settings_error(
+                    request,
+                    "HTTPS is on but the certificate could not be refreshed for this hostname.",
+                    tab,
+                )
+            if hostname_changed:
+                hostname_cert_renewed = True
         if ingest_interval_minutes.strip():
             try:
                 minutes = int(ingest_interval_minutes)
@@ -1408,7 +1444,22 @@ async def save_settings(
         else:
             settings.clear_value(db, "github_repo")
 
-    payload = {"ok": True, "message": "Settings saved.", "reauth": reauth}
+    message = "Settings saved."
+    if is_admin and turning_https_off:
+        update.schedule_restart()
+        message = "HTTPS is off. NewsCast is restarting on plain HTTP."
+    elif is_admin and turning_https_on:
+        message = (
+            "Certificate ready. Download the root CA below, trust it on each device, "
+            "then use Restart to enable HTTPS."
+        )
+    elif is_admin and hostname_cert_renewed and want_https:
+        message = (
+            "Settings saved. The certificate was renewed for this hostname — "
+            "restart NewsCast when you are ready."
+        )
+
+    payload = {"ok": True, "message": message, "reauth": reauth}
     if _wants_json(request):
         response: JSONResponse | RedirectResponse = JSONResponse(payload)
     elif reauth:
@@ -1418,6 +1469,51 @@ async def save_settings(
     if reauth:
         clear_session(response)
     return response
+
+
+@router.post("/settings/tls/restart")
+def restart_for_tls(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can restart NewsCast.", settings_path("device"), 403)
+    if not settings.https_enabled(db):
+        return _form_error(request, "Turn on Use HTTPS on the LAN first.", settings_path("device"))
+    if not tls.CA_CERT.exists():
+        return _form_error(
+            request,
+            "No certificate yet. Save General settings with HTTPS enabled first.",
+            settings_path("device"),
+        )
+    update.schedule_restart()
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": True,
+                "message": f"Restarting… then open {hostname.get_share_url(db)} (not http://).",
+            }
+        )
+    return RedirectResponse(settings_path("device"), status_code=303)
+
+
+@router.get("/settings/tls/root-ca.pem", name="download_root_ca")
+def download_root_ca(request: Request, db: Annotated[Session, Depends(get_db)]):
+    session = session_from_request(request)
+    if not session or session.role != "admin":
+        return _form_error(request, "Only admins can download the root CA.", settings_path("device"), 403)
+    try:
+        pem = tls.root_ca_pem_bytes()
+    except FileNotFoundError:
+        return _form_error(
+            request,
+            "No root CA yet. Turn on Use HTTPS on the LAN and save settings first.",
+            settings_path("device"),
+            404,
+        )
+    return Response(
+        content=pem,
+        media_type="application/x-pem-file",
+        headers={"Content-Disposition": 'attachment; filename="newscast-root-ca.pem"'},
+    )
 
 
 @router.post("/settings/updates/check")

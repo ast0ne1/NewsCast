@@ -1,6 +1,27 @@
 ﻿# Changelog
 
-Current version is **0.0.0.8**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.0.9**. New work is appended under that version until you ask to bump it.
+
+## 0.0.0.9 — 2026-09-16
+
+### Added
+- In-app LAN HTTPS: Settings → General → Use HTTPS on the LAN creates a household local CA and server certificate (`app/services/tls.py`, `cryptography`) and serves TLS on the existing app port via `python -m app.serve`
+- Admin **Download root CA** (`/settings/tls/root-ca.pem`) plus certificate status (expiry, SANs) on General
+- **Restart to enable HTTPS** on General after the CA is ready (HTTPS stays on HTTP until you restart, so the CA can be downloaded first)
+- Backup/restore includes `data/tls/` so the same CA survives restores
+
+### Fixed
+- Enabling HTTPS no longer auto-restarts before you can download the root CA (avoids “site can’t be reached” when the browser is still on `http://`)
+
+### Changed
+- Share/OPDS https URLs include the app port (e.g. `https://newscast.local:8080`) instead of implying port 443
+- `deploy/run.sh` and `run-local.bat` start through `app.serve` (HTTP or HTTPS, never both)
+- Turning HTTPS **off** still schedules a restart back to plain HTTP; turning it **on** waits for Download root CA + Restart to enable HTTPS
+- Hostname changes while HTTPS is on renew the certificate and prompt a restart when needed
+- README / INSTALL document in-app HTTPS and CA trust steps; `deploy/Caddyfile` demoted to optional/advanced
+- Settings action buttons gain small icons (Download root CA, Restart HTTPS, Catalog Import/Export, Select/Unselect all, Save approvals, Load from Ollama, Save user, Create account, Add category, Download/Restore backup, Roll back, Check for updates)
+- People card button label is **Save user** (username removed from the label)
+- Transfer queue **display** order: today’s paper first, then older papers (newest date first), then Send files (push still runs oldest-first)
 
 ## 0.0.0.8 — 2026-09-15
 

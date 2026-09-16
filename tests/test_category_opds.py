@@ -37,6 +37,7 @@ def test_publish_writes_only_enabled_category_papers(tmp_path: Path, monkeypatch
     now = datetime(2026, 9, 15, 7, 0)
     monkeypatch.setattr("app.services.briefing.BRIEFING_DIR", tmp_path)
     monkeypatch.setattr("app.services.briefing.utcnow", lambda: datetime(2026, 9, 15, tzinfo=timezone.utc))
+    monkeypatch.setattr("app.services.briefing._local_today", lambda now=None: date(2026, 9, 15))
     monkeypatch.setattr("app.services.briefing.env.story_retention_days", 7)
     monkeypatch.setattr("app.services.briefing.enqueue_latest_briefing", lambda db, **_kwargs: None)
     db = _session()

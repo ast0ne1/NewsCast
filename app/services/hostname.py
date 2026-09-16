@@ -26,11 +26,16 @@ def _scheme(db: Session) -> str:
     return "https" if settings.https_enabled(db) else "http"
 
 
+def _with_port(scheme: str, host: str) -> str:
+    """Include port unless it is the scheme default (80 / 443)."""
+    port = env.port
+    if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+        return f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}"
+
+
 def _host_url(db: Session, host: str) -> str:
-    scheme = _scheme(db)
-    if scheme == "https":
-        return f"{scheme}://{host}.local"
-    return f"{scheme}://{host}.local:{env.port}"
+    return _with_port(_scheme(db), f"{host}.local")
 
 
 def get_public_base_url(db: Session) -> str:
@@ -70,15 +75,11 @@ def get_lan_url(db: Session | None = None) -> str:
     scheme = _scheme(db) if db is not None else "http"
     ip = get_lan_ip()
     if ip:
-        if scheme == "https":
-            return f"{scheme}://{ip}"
-        return f"{scheme}://{ip}:{env.port}"
+        return _with_port(scheme, ip)
     public = env.public_base_url.rstrip("/")
     if public and not _is_loopback(public):
         return public
-    if scheme == "https":
-        return "https://127.0.0.1"
-    return f"http://127.0.0.1:{env.port}"
+    return _with_port(scheme, "127.0.0.1")
 
 
 def get_share_url(db: Session) -> str:
