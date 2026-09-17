@@ -73,6 +73,7 @@ def ensure_admin_user(db: Session | None = None) -> User:
             role="admin",
             can_add_custom_sources=True,
             can_use_ntfy=True,
+            can_view_status=True,
             active=True,
             ui_lang=(settings.get_value(session, "ui_lang") or None),
         )
@@ -94,6 +95,7 @@ def create_user(
     role: str = "user",
     can_add_custom_sources: bool = False,
     can_use_ntfy: bool = False,
+    can_view_status: bool = False,
 ) -> User:
     name = (username or "").strip()
     if not name:
@@ -109,6 +111,7 @@ def create_user(
         role=role if role in {"admin", "user"} else "user",
         can_add_custom_sources=True if is_admin else bool(can_add_custom_sources),
         can_use_ntfy=True if is_admin else bool(can_use_ntfy),
+        can_view_status=True if is_admin else bool(can_view_status),
         active=True,
     )
     db.add(user)
@@ -123,6 +126,7 @@ def update_user(
     *,
     can_add_custom_sources: bool | None = None,
     can_use_ntfy: bool | None = None,
+    can_view_status: bool | None = None,
     active: bool | None = None,
     new_password: str | None = None,
 ) -> User:
@@ -130,6 +134,7 @@ def update_user(
     if user.role == "admin":
         user.can_add_custom_sources = True
         user.can_use_ntfy = True
+        user.can_view_status = True
         if active is False:
             other_admins = (
                 db.query(User)
@@ -143,6 +148,8 @@ def update_user(
             user.can_add_custom_sources = bool(can_add_custom_sources)
         if can_use_ntfy is not None:
             user.can_use_ntfy = bool(can_use_ntfy)
+        if can_view_status is not None:
+            user.can_view_status = bool(can_view_status)
         if active is not None:
             user.active = bool(active)
 
@@ -163,12 +170,14 @@ def update_user_permissions(
     *,
     can_add_custom_sources: bool | None = None,
     can_use_ntfy: bool | None = None,
+    can_view_status: bool | None = None,
 ) -> User:
     return update_user(
         db,
         user,
         can_add_custom_sources=can_add_custom_sources,
         can_use_ntfy=can_use_ntfy,
+        can_view_status=can_view_status,
     )
 
 
@@ -209,6 +218,14 @@ def user_may_use_ntfy(user: User | None) -> bool:
     if user.role == "admin":
         return True
     return bool(user.can_use_ntfy)
+
+
+def user_may_view_status(user: User | None) -> bool:
+    if user is None:
+        return False
+    if user.role == "admin":
+        return True
+    return bool(user.can_view_status)
 
 
 def issue_login_token(db: Session, user: User, *, ttl: timedelta | None = None) -> str:
@@ -533,15 +550,19 @@ def migrate_multi_user() -> int:
             if "can_use_ntfy" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN can_use_ntfy INTEGER DEFAULT 0"))
                 conn.execute(text("UPDATE users SET can_use_ntfy = 1 WHERE role = 'admin'"))
+            if "can_view_status" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN can_view_status INTEGER DEFAULT 0"))
+                conn.execute(text("UPDATE users SET can_view_status = 1 WHERE role = 'admin'"))
 
     admin = ensure_admin_user()
     admin_id = admin.id
-    if admin.role == "admin" and not bool(admin.can_use_ntfy):
+    if admin.role == "admin" and (not bool(admin.can_use_ntfy) or not bool(admin.can_view_status)):
         with SessionLocal() as session:
             row = session.get(User, admin_id)
             if row is not None:
                 row.can_use_ntfy = True
                 row.can_add_custom_sources = True
+                row.can_view_status = True
                 session.commit()
 
     with engine.begin() as conn:

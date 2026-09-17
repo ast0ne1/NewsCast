@@ -1,6 +1,25 @@
 ﻿# Changelog
 
-Current version is **0.0.0.9**. New work is appended under that version until you ask to bump it.
+Current version is **0.0.1**. New work is appended under that version until you ask to bump it.
+Subsequent builds use **0.0.1.x** (then `0.0.2` / `0.0.2.x`, and so on).
+
+## 0.0.1 — 2026-09-17
+
+### Added
+- Admin permission `can_view_status` (off by default) gates the Status nav and `/status` for non-admins; admins always have access
+- Per-account Reader device settings (host, upload folder, push-when-online, Kobo SSH): each household member can target their own Xteink/Kobo
+- Optional **Copy admin reader setup** when creating a user (off by default), with a one-time non-blocking banner to confirm their own host
+- Upload folders auto-namespace to `…/{username}` (e.g. `/News/pat`) so shared devices do not mix files
+- Background “push when online” flushes each account to that account’s reader host only
+
+### Fixed
+- Transfer queue is scoped per account: Send/Status only show that user’s pending files; Push/Queue/Cancel no longer touch another household member’s queue
+
+### Changed
+- Status is hidden from household users until an admin enables it under Settings → People
+- Queue cancel control is icon-only (trash), with title/aria-label for accessibility
+- Settings → Reader is each signed-in user’s personal device (admin included), not a single household reader
+- Version scheme jumps from `0.0.0.9` to `0.0.1`; further patches are `0.0.1.x`
 
 ## 0.0.0.9 — 2026-09-16
 

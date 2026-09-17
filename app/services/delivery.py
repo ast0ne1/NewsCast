@@ -76,25 +76,26 @@ def _published_at(path: Path) -> datetime | None:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
 
 
-def _latest_complete(db: Session) -> SyncTask | None:
-    return (
+def _latest_complete(db: Session, user_id: int | None = None) -> SyncTask | None:
+    query = (
         db.query(SyncTask)
         .filter(SyncTask.kind == "crosspoint")
         .filter(SyncTask.status == "complete")
-        .order_by(SyncTask.completed_at.desc(), SyncTask.id.desc())
-        .first()
     )
+    if user_id is not None:
+        query = query.filter(SyncTask.user_id == int(user_id))
+    return query.order_by(SyncTask.completed_at.desc(), SyncTask.id.desc()).first()
 
 
-def _latest_briefing_complete(db: Session, day: date) -> SyncTask | None:
-    tasks = (
+def _latest_briefing_complete(db: Session, day: date, user_id: int | None = None) -> SyncTask | None:
+    query = (
         db.query(SyncTask)
         .filter(SyncTask.kind == "crosspoint")
         .filter(SyncTask.status == "complete")
-        .order_by(SyncTask.completed_at.desc(), SyncTask.id.desc())
-        .limit(40)
-        .all()
     )
+    if user_id is not None:
+        query = query.filter(SyncTask.user_id == int(user_id))
+    tasks = query.order_by(SyncTask.completed_at.desc(), SyncTask.id.desc()).limit(40).all()
     for task in tasks:
         if briefing_day_for_task(task) == day:
             return task
@@ -109,29 +110,40 @@ def mark_briefing_pushed(db: Session, day: date) -> None:
     settings.set_value(db, "last_briefing_pushed_day", day.isoformat())
 
 
-def briefing_pushed_today(db: Session, day: date) -> bool:
+def briefing_pushed_today(db: Session, day: date, user_id: int | None = None) -> bool:
     stored = settings.get_value(db, "last_briefing_pushed_day").strip()
     if stored == day.isoformat():
         return True
-    return _latest_briefing_complete(db, day) is not None
+    return _latest_briefing_complete(db, day, user_id=user_id) is not None
 
 
-def delivery_status(db: Session, *, now: datetime | None = None, pending: list[SyncTask] | None = None) -> dict:
+def delivery_status(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    pending: list[SyncTask] | None = None,
+    user_id: int | None = None,
+) -> dict:
     from app.services.reader_push import pending_crosspoint, queue_label
 
     when = now or datetime.now().astimezone()
     today = _local_today(when)
-    paper = paper_status(db, now=when)
-    path = dated_briefing_path(today)
+    paper = paper_status(db, now=when, user_id=user_id)
+    path = dated_briefing_path(today, user_id=user_id)
     published_at = _published_at(path) if paper["published"] else None
-    pending_tasks = pending if pending is not None else pending_crosspoint(db)
+    pending_tasks = pending if pending is not None else pending_crosspoint(db, user_id=user_id)
     oldest = pending_tasks[0] if pending_tasks else None
     oldest_created = _aware(oldest.created_at) if oldest else None
     queue_age = format_age(utcnow() - oldest_created) if oldest_created else None
-    last_push = _latest_complete(db)
-    last_briefing = _latest_briefing_complete(db, today)
-    push_on = settings.reader_push_enabled(db)
-    pushed = briefing_pushed_today(db, today)
+    last_push = _latest_complete(db, user_id=user_id)
+    last_briefing = _latest_briefing_complete(db, today, user_id=user_id)
+    if user_id is not None:
+        from app.services import reader_config
+
+        push_on = reader_config.reader_push_enabled(db, user_id)
+    else:
+        push_on = settings.reader_push_enabled(db)
+    pushed = briefing_pushed_today(db, today, user_id=user_id)
     pending_briefing = _pending_briefing(db, today, pending_tasks)
 
     if not paper["published"]:

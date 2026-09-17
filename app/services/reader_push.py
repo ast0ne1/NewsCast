@@ -21,7 +21,11 @@ UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=5.0)
 _last_probe: dict | None = None
 
 
-def reader_host(db: Session) -> str:
+def reader_host(db: Session, user_id: int | None = None) -> str:
+    if user_id is not None:
+        from app.services import reader_config
+
+        return reader_config.reader_host(db, user_id)
     host = (settings.get_value(db, "reader_host") or "").strip()
     host = host.removeprefix("http://").removeprefix("https://").split("/")[0]
     if host:
@@ -29,7 +33,11 @@ def reader_host(db: Session) -> str:
     return "" if settings.reader_is_kobo(db) else settings.DEFAULT_XTEINK_HOST
 
 
-def reader_upload_dir(db: Session) -> str:
+def reader_upload_dir(db: Session, user_id: int | None = None) -> str:
+    if user_id is not None:
+        from app.services import reader_config
+
+        return reader_config.reader_upload_dir(db, user_id)
     raw = (settings.get_value(db, "reader_upload_path") or "").strip()
     if not raw:
         raw = settings.DEFAULT_KOBO_FOLDER if settings.reader_is_kobo(db) else settings.DEFAULT_XTEINK_FOLDER
@@ -40,6 +48,8 @@ def reader_upload_dir(db: Session) -> str:
 
 
 def _http_reachable(host: str, timeout: float) -> bool:
+    if not host:
+        return False
     try:
         with httpx.Client(timeout=httpx.Timeout(timeout, connect=timeout), follow_redirects=True) as client:
             response = client.get(f"http://{host}/api/status")
@@ -58,8 +68,21 @@ def _tcp_reachable(host: str, port: int, timeout: float) -> bool:
         return False
 
 
-def reader_reachable(host: str, timeout: float | None = None, db: Session | None = None) -> bool:
+def reader_reachable(
+    host: str,
+    timeout: float | None = None,
+    db: Session | None = None,
+    user_id: int | None = None,
+) -> bool:
     limit = timeout if timeout is not None else 2.0
+    if not host:
+        return False
+    if db is not None and user_id is not None:
+        from app.services import reader_config
+
+        if reader_config.reader_is_kobo(db, user_id):
+            return _tcp_reachable(host, reader_config.reader_ssh_port(db, user_id), limit)
+        return _http_reachable(host, limit)
     if db is not None and settings.reader_is_kobo(db):
         return _tcp_reachable(host, settings.reader_ssh_port(db), limit)
     return _http_reachable(host, limit)
@@ -93,13 +116,20 @@ def _ensure_sftp_dir(sftp, folder: str) -> None:
             sftp.mkdir(current)
 
 
-def _sftp_upload(db: Session, host: str, path: Path, dest_dir: str) -> None:
+def _sftp_upload(db: Session, host: str, path: Path, dest_dir: str, user_id: int | None = None) -> None:
     import paramiko
 
+    from app.services import reader_config
+
     folder = dest_dir if dest_dir.startswith("/") else f"/{dest_dir}"
-    port = settings.reader_ssh_port(db)
-    user = settings.reader_ssh_user(db)
-    password = settings.get_value(db, "reader_ssh_password")
+    if user_id is not None:
+        port = reader_config.reader_ssh_port(db, user_id)
+        user = reader_config.reader_ssh_user(db, user_id)
+        password = reader_config.reader_ssh_password(db, user_id)
+    else:
+        port = settings.reader_ssh_port(db)
+        user = settings.reader_ssh_user(db)
+        password = settings.get_value(db, "reader_ssh_password")
     client = paramiko.SSHClient()
     keys = _known_hosts_path()
     client.load_system_host_keys()
@@ -128,21 +158,30 @@ def _sftp_upload(db: Session, host: str, path: Path, dest_dir: str) -> None:
         client.close()
 
 
-def upload_file(host: str, path: Path, dest_dir: str, db: Session | None = None) -> None:
+def upload_file(host: str, path: Path, dest_dir: str, db: Session | None = None, user_id: int | None = None) -> None:
+    if db is not None and user_id is not None:
+        from app.services import reader_config
+
+        if reader_config.reader_is_kobo(db, user_id):
+            _sftp_upload(db, host, path, dest_dir, user_id=user_id)
+            return
+        _http_upload(host, path, dest_dir)
+        return
     if db is not None and settings.reader_is_kobo(db):
         _sftp_upload(db, host, path, dest_dir)
         return
     _http_upload(host, path, dest_dir)
 
 
-def pending_crosspoint(db: Session) -> list[SyncTask]:
-    return (
+def pending_crosspoint(db: Session, user_id: int | None = None) -> list[SyncTask]:
+    query = (
         db.query(SyncTask)
         .filter(SyncTask.kind == "crosspoint")
         .filter(SyncTask.status == "pending")
-        .order_by(SyncTask.created_at.asc())
-        .all()
     )
+    if user_id is not None:
+        query = query.filter(SyncTask.user_id == int(user_id))
+    return query.order_by(SyncTask.created_at.asc()).all()
 
 
 def queue_label(task: SyncTask) -> str:
@@ -184,9 +223,9 @@ def _created_label(value: datetime | None) -> str:
     return when.astimezone(timezone.utc).strftime("%d %b %Y %H:%M") + " UTC"
 
 
-def queue_items(db: Session) -> list[dict]:
+def queue_items(db: Session, user_id: int | None = None) -> list[dict]:
     items = []
-    for task in sorted(pending_crosspoint(db), key=_queue_display_sort_key):
+    for task in sorted(pending_crosspoint(db, user_id=user_id), key=_queue_display_sort_key):
         name = Path(task.save_path or task.file_path).name
         items.append(
             {
@@ -200,13 +239,15 @@ def queue_items(db: Session) -> list[dict]:
     return items
 
 
-def cancel_pending(db: Session, task_id: str) -> bool:
-    task = (
+def cancel_pending(db: Session, task_id: str, user_id: int | None = None) -> bool:
+    query = (
         db.query(SyncTask)
         .filter(SyncTask.task_id == task_id)
         .filter(SyncTask.status == "pending")
-        .first()
     )
+    if user_id is not None:
+        query = query.filter(SyncTask.user_id == int(user_id))
+    task = query.first()
     if task is None:
         return False
     task.status = "cancelled"
@@ -215,23 +256,37 @@ def cancel_pending(db: Session, task_id: str) -> bool:
     return True
 
 
-def enqueue_frozen_briefing(db: Session) -> SyncTask | None:
-    path = frozen_briefing_path("today", suffix="epub", fallback=False)
+def enqueue_frozen_briefing(db: Session, user_id: int | None = None) -> SyncTask | None:
+    uid = int(user_id or 1)
+    path = frozen_briefing_path("today", suffix="epub", fallback=False, user_id=uid)
     if path is None:
         return None
-    dest = reader_upload_dir(db)
+    dest = reader_upload_dir(db, user_id=uid)
     day = day_from_briefing_path(path.stem) or datetime.now().date()
     save_name = paper_download_name(db, day, suffix="epub")
-    return enqueue_sync_file(db, path, save_name, kind="crosspoint", save_path=join(dest, save_name))
+    return enqueue_sync_file(
+        db,
+        path,
+        save_name,
+        kind="crosspoint",
+        save_path=join(dest, save_name),
+        user_id=uid,
+    )
 
 
-def enqueue_briefing_and_library(db: Session) -> list[SyncTask]:
-    dest = reader_upload_dir(db)
+def enqueue_briefing_and_library(db: Session, user_id: int | None = None) -> list[SyncTask]:
+    uid = int(user_id or 1)
+    dest = reader_upload_dir(db, user_id=uid)
     tasks: list[SyncTask] = []
-    briefing_task = enqueue_frozen_briefing(db)
+    briefing_task = enqueue_frozen_briefing(db, user_id=uid)
     if briefing_task:
         tasks.append(briefing_task)
-    for item in db.query(LibraryFile).order_by(LibraryFile.created_at.desc()).all():
+    for item in (
+        db.query(LibraryFile)
+        .filter(LibraryFile.user_id == uid)
+        .order_by(LibraryFile.created_at.desc())
+        .all()
+    ):
         from app.services.library import library_path
 
         path = library_path(item)
@@ -245,7 +300,7 @@ def enqueue_briefing_and_library(db: Session) -> list[SyncTask]:
                 name,
                 kind="crosspoint",
                 save_path=join(dest, name),
-                user_id=item.user_id,
+                user_id=uid,
             )
         )
     return tasks
@@ -256,13 +311,14 @@ def _task_folder(task: SyncTask, default: str) -> str:
     return folder if folder and folder != "." else default
 
 
-def flush_pending(db: Session) -> dict:
+def flush_pending(db: Session, user_id: int | None = None) -> dict:
     from app.services.delivery import briefing_day_for_task, mark_briefing_pushed
 
-    host = reader_host(db)
-    dest = reader_upload_dir(db)
-    tasks = pending_crosspoint(db)
-    online = reader_reachable(host, db=db)
+    uid = int(user_id) if user_id is not None else None
+    host = reader_host(db, user_id=uid)
+    dest = reader_upload_dir(db, user_id=uid) if uid is not None else reader_upload_dir(db)
+    tasks = pending_crosspoint(db, user_id=uid)
+    online = reader_reachable(host, db=db, user_id=uid)
     if not online:
         return {"ok": False, "online": False, "uploaded": 0, "pending": len(tasks), "host": host}
     uploaded = 0
@@ -273,8 +329,9 @@ def flush_pending(db: Session) -> dict:
             task.status = "failed"
             task.completed_at = utcnow()
             continue
+        task_uid = getattr(task, "user_id", None) or uid
         try:
-            upload_file(host, path, _task_folder(task, dest), db=db)
+            upload_file(host, path, _task_folder(task, dest), db=db, user_id=task_uid)
             task.status = "complete"
             task.completed_at = utcnow()
             uploaded += 1
@@ -295,8 +352,24 @@ def flush_pending(db: Session) -> dict:
         except Exception as exc:  # noqa: BLE001
             logger.warning("upload failed for %s: %s", path.name, exc)
     db.commit()
-    pending = len(pending_crosspoint(db))
+    pending = len(pending_crosspoint(db, user_id=uid))
     return {"ok": True, "online": True, "uploaded": uploaded, "pending": pending, "host": host}
+
+
+def flush_all_enabled(db: Session) -> list[dict]:
+    """Background tick: flush each active user who has push-when-online and a host."""
+    from app.models import User
+    from app.services import reader_config
+
+    results: list[dict] = []
+    users = db.query(User).filter(User.active.is_(True)).order_by(User.id.asc()).all()
+    for user in users:
+        if not reader_config.reader_push_enabled(db, user.id):
+            continue
+        if not reader_config.reader_host(db, user.id):
+            continue
+        results.append(flush_pending(db, user_id=user.id))
+    return results
 
 
 def remember_probe(host: str, online: bool) -> None:
@@ -310,25 +383,38 @@ def last_probe(host: str) -> dict | None:
     return None
 
 
-def snapshot(db: Session, *, probe: bool = True) -> dict:
-    host = reader_host(db)
-    pending = pending_crosspoint(db)
+def snapshot(db: Session, *, probe: bool = True, user_id: int | None = None) -> dict:
+    from app.services import reader_config
+
+    uid = int(user_id) if user_id is not None else None
+    host = reader_host(db, user_id=uid)
+    pending = pending_crosspoint(db, user_id=uid)
     if probe:
-        online = reader_reachable(host, timeout=0.6, db=db)
+        online = reader_reachable(host, timeout=0.6, db=db, user_id=uid)
         remember_probe(host, online)
         checked = True
     else:
         prev = last_probe(host)
         online = None if prev is None else prev["online"]
         checked = prev is not None
+    if uid is not None:
+        push_on = reader_config.reader_push_enabled(db, uid)
+        device = reader_config.reader_device(db, uid)
+        ssh_port = reader_config.reader_ssh_port(db, uid)
+        upload_path = reader_upload_dir(db, user_id=uid)
+    else:
+        push_on = settings.reader_push_enabled(db)
+        device = settings.reader_device(db)
+        ssh_port = settings.reader_ssh_port(db)
+        upload_path = reader_upload_dir(db)
     return {
         "host": host,
-        "upload_path": reader_upload_dir(db),
+        "upload_path": upload_path,
         "online": online,
         "checked": checked,
         "pending": len(pending),
-        "queue": queue_items(db),
-        "push_when_online": settings.reader_push_enabled(db),
-        "device": settings.reader_device(db),
-        "ssh_port": settings.reader_ssh_port(db),
+        "queue": queue_items(db, user_id=uid),
+        "push_when_online": push_on,
+        "device": device,
+        "ssh_port": ssh_port,
     }

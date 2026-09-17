@@ -9,10 +9,8 @@
     </div>
     <form method="post" action="/reader/queue/{{ item.task_id }}/cancel" class="queue-cancel">
       <input type="hidden" name="next" value="{{ queue_next|default('/status') }}" />
-      <button class="btn btn-secondary btn-with-icon" type="submit" title="Remove from transfer" aria-label="Remove {{ item.label }} from transfer">
+      <button class="icon-btn" type="submit" title="Remove from transfer" aria-label="Remove {{ item.label }} from transfer">
         {{ icon("trash") }}
-        <span class="queue-cancel-full">Remove from transfer</span>
-        <span class="queue-cancel-short">Remove</span>
       </button>
     </form>
   </li>

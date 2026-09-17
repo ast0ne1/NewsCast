@@ -187,8 +187,8 @@ def test_flush_pending_notifies_push_once(tmp_path: Path, monkeypatch):
         save_path=f"/News/{path.name}",
     )
     posts = _patch_httpx(monkeypatch)
-    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None: True)
-    monkeypatch.setattr(reader_push, "upload_file", lambda host, file_path, dest, db=None: None)
+    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None, user_id=None: True)
+    monkeypatch.setattr(reader_push, "upload_file", lambda host, file_path, dest, db=None, user_id=None: None)
     reader_push.flush_pending(db)
     assert len(posts) == 1
     enqueue_sync_file(

@@ -16,24 +16,35 @@ def test_update_user_permissions_and_password():
     user = users.create_user(db, username="pat", password="pass1", can_use_ntfy=False)
     assert not user.can_add_custom_sources
     assert not user.can_use_ntfy
+    assert not user.can_view_status
 
     users.update_user(
         db,
         user,
         can_add_custom_sources=True,
         can_use_ntfy=True,
+        can_view_status=True,
         active=True,
         new_password="pass2",
     )
     db.refresh(user)
     assert user.can_add_custom_sources
     assert user.can_use_ntfy
+    assert user.can_view_status
     assert passwords.verify_password(user.password, "pass2")
 
-    users.update_user(db, user, can_add_custom_sources=False, can_use_ntfy=False, active=False)
+    users.update_user(
+        db,
+        user,
+        can_add_custom_sources=False,
+        can_use_ntfy=False,
+        can_view_status=False,
+        active=False,
+    )
     db.refresh(user)
     assert not user.can_add_custom_sources
     assert not user.can_use_ntfy
+    assert not user.can_view_status
     assert not user.active
 
 
@@ -45,14 +56,37 @@ def test_admin_keeps_ntfy_and_custom_feeds():
         role="admin",
         can_add_custom_sources=True,
         can_use_ntfy=True,
+        can_view_status=True,
     )
     db.add(admin)
     db.commit()
     db.refresh(admin)
-    users.update_user(db, admin, can_add_custom_sources=False, can_use_ntfy=False)
+    users.update_user(
+        db,
+        admin,
+        can_add_custom_sources=False,
+        can_use_ntfy=False,
+        can_view_status=False,
+    )
     db.refresh(admin)
     assert admin.can_add_custom_sources
     assert admin.can_use_ntfy
+    assert admin.can_view_status
+
+
+def test_user_may_view_status():
+    assert not users.user_may_view_status(None)
+    member = User(
+        username="pat",
+        password="x",
+        role="user",
+        can_view_status=False,
+    )
+    assert not users.user_may_view_status(member)
+    member.can_view_status = True
+    assert users.user_may_view_status(member)
+    admin = User(username="admin", password="x", role="admin", can_view_status=False)
+    assert users.user_may_view_status(admin)
 
 
 def test_delete_user_removes_owned_rows(tmp_path, monkeypatch):

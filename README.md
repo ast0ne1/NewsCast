@@ -37,8 +37,8 @@ Default login: **admin** / **admin** on the in-page sign-in screen. Change it on
 | **Send** | Upload an EPUB or PDF. Check the reader when you want, then push now or queue until it is on Wi-Fi. Waiting transfers sit above Your files |
 | **Feeds** | Your sources: Enabled / Disabled, mute for 24 hours, health badge, Global vs Custom schedule, keywords, Summarise vs Full article, Translate into your target language, and Add custom when allowed |
 | **Catalog** | Browsable library of World News, Nordic, Australia, culture, tech, science, and other sources. Non-admins only see sources the admin approved. Import or export a JSON package (admin). Tap Add; use plus only for a source that is not listed |
-| **Status** | Delivery and health, Check reader plus push / publish controls, your personal OPDS catalog URL (`/opds/u/<username>`), downloads, the pending file queue, and a QR code to open or add this copy on an iPhone home screen |
-| **Settings** | Tabs for General (palette, login, hostname, HTTPS, interface language), Publication, Schedule, Filters, Translation, LLM, Reader, Notifications (ntfy, when allowed), Categories, Catalog approvals, Users, Backup/Restore, Update, and About |
+| **Status** | Delivery and health, Check reader plus push / publish controls, your personal OPDS catalog URL (`/opds/u/<username>`), downloads, the pending file queue, and a QR code to open or add this copy on an iPhone home screen. Hidden for household users until an admin enables it under Settings → People |
+| **Settings** | Tabs for General (palette, login, hostname, HTTPS, interface language), Publication, Schedule, Filters, Translation, LLM, Reader (per-account device host/folder/push), Notifications (ntfy, when allowed), Categories, Catalog approvals, Users, Backup/Restore, Update, and About |
 
 <p align="center">
   <img src="docs/screenshots/briefing.png?v=0.0.0.8" alt="Briefing" width="280" />

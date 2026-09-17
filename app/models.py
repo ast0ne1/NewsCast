@@ -21,6 +21,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user")
     can_add_custom_sources: Mapped[bool] = mapped_column(Boolean, default=False)
     can_use_ntfy: Mapped[bool] = mapped_column(Boolean, default=False)
+    can_view_status: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     login_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     login_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

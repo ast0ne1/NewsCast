@@ -450,6 +450,15 @@ h2 { font-family: var(--serif); font-size: 1.35rem; }
   margin: 0 0 16px;
 }
 .banner-muted { background: var(--card); }
+.banner-with-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.banner-with-action > p { margin: 0; flex: 1 1 16rem; }
+.banner-dismiss { margin: 0; flex: 0 0 auto; }
 
 .card {
   background: var(--card);
@@ -763,7 +772,6 @@ select:focus-visible {
   justify-self: end;
   min-width: 0;
 }
-.queue-cancel-short { display: none; }
 .library-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
@@ -1502,15 +1510,15 @@ input[type="search"]::-webkit-search-results-button {
   .library-push {
     justify-self: stretch;
   }
-  .queue-cancel .btn,
+  .queue-cancel {
+    justify-self: end;
+  }
   .library-push .btn {
     width: 100%;
   }
   .library-row form:has(.icon-btn) {
     justify-self: end;
   }
-  .queue-cancel-full { display: none; }
-  .queue-cancel-short { display: inline; }
   .btn-block {
     min-height: var(--tap);
     font-size: 0.9rem;

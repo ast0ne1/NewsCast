@@ -464,13 +464,14 @@
         Upload folder
         <input type="text" name="reader_upload_path" value="{{ reader_upload_path }}" autocomplete="off" autocapitalize="off" spellcheck="false" data-reader-folder placeholder="{{ '/mnt/onboard/News' if reader_device == 'kobo' else '/News' }}" />
       </label>
-      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>Files land under <strong>/mnt/onboard</strong>, which is KOReader’s file browser root. Default folder is <strong>/mnt/onboard/News</strong>.</p>
+      <p class="hint">Files land in a personal subfolder on the device (for example <strong>{{ reader_upload_path }}</strong>) so household accounts do not mix.</p>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>KOReader’s file browser root is <strong>/mnt/onboard</strong>. Default base folder is <strong>/mnt/onboard/News</strong>.</p>
       <label class="check">
         <input type="checkbox" name="reader_push_when_online" value="1" {% if reader_push_when_online %}checked{% endif %} />
         Push when the reader is on Wi-Fi
       </label>
-      <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks CrossPoint every minute. If File Transfer is on, queued briefing and Send files upload to this folder. If the reader is asleep, they wait.</p>
-      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks the Kobo SSH port every minute. If KOReader’s SSH server is running, queued briefing and Send files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
+      <p class="hint" data-reader-hint="xteink" {% if reader_device != 'xteink' %}hidden{% endif %}>NewsCast checks <strong>your</strong> CrossPoint host every minute. If File Transfer is on, queued briefing and Send files upload to your folder. If the reader is asleep, they wait.</p>
+      <p class="hint" data-reader-hint="kobo" {% if reader_device != 'kobo' %}hidden{% endif %}>NewsCast checks <strong>your</strong> Kobo SSH port every minute. If KOReader’s SSH server is running, queued files copy over SFTP. If SSH is off or the Kobo is asleep, they wait.</p>
       <p class="hint">{{ delivery.hint }}</p>
     </div>
     <button class="btn btn-primary btn-block btn-with-icon" type="submit">{{ icon("check") }} {{ t("Save settings") }}</button>
@@ -615,6 +616,9 @@
             {% if user.role == 'admin' or user.can_use_ntfy %}
             <span class="chip chip-quiet">Phone alerts</span>
             {% endif %}
+            {% if user.role == 'admin' or user.can_view_status %}
+            <span class="chip chip-quiet">Status</span>
+            {% endif %}
           </div>
         </div>
         <form method="post" action="/settings/users/{{ user.id }}/qr" data-native>
@@ -623,7 +627,7 @@
       </div>
 
       {% if user.role == 'admin' %}
-      <p class="hint">Admin accounts always have custom feeds and phone alerts. Change the admin username or password under General.</p>
+      <p class="hint">Admin accounts always have custom feeds, phone alerts, and Status. Change the admin username or password under General.</p>
       {% else %}
       <form method="post" action="/settings/users/{{ user.id }}" class="stack user-edit-form" autocomplete="off">
         <fieldset class="user-fieldset">
@@ -640,6 +644,13 @@
             <span>
               Phone alerts (ntfy)
               <span class="user-perm-hint">Shows a Notifications tab so they can set their own topic. Off by default.</span>
+            </span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="can_view_status" value="1" {% if user.can_view_status %}checked{% endif %} />
+            <span>
+              Status page
+              <span class="user-perm-hint">Shows Status in the nav (reader health, share QR, delivery). Off by default.</span>
             </span>
           </label>
           <label class="check">
@@ -730,6 +741,20 @@
           <span>
             Phone alerts (ntfy)
             <span class="user-perm-hint">Optional. They configure their own topic after you enable this.</span>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="can_view_status" value="1" />
+          <span>
+            Status page
+            <span class="user-perm-hint">Optional. Lets them open Status for reader health and share links.</span>
+          </span>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="copy_admin_reader" value="1" />
+          <span>
+            Copy admin reader setup
+            <span class="user-perm-hint">Optional. Copies your device host and folder, then namespaces their upload path. They should confirm the host for their own reader.</span>
           </span>
         </label>
       </fieldset>

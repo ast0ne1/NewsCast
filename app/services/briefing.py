@@ -775,10 +775,10 @@ def publish_daily_briefing(
     prune_old_briefings(user_id=uid)
     if created:
         enqueue_latest_briefing(db, user_id=uid)
-        if settings.reader_push_enabled(db):
-            from app.services import reader_push
+        from app.services import reader_config, reader_push
 
-            reader_push.enqueue_frozen_briefing(db)
+        if reader_config.reader_push_enabled(db, uid):
+            reader_push.enqueue_frozen_briefing(db, user_id=uid)
         from app.services import ntfy
 
         paper_title = paper_display_title(db, day)

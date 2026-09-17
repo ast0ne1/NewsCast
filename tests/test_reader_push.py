@@ -20,7 +20,7 @@ def test_unreachable_leaves_pending(tmp_path: Path, monkeypatch):
     path = tmp_path / "news.epub"
     path.write_bytes(b"epub")
     enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
-    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None: False)
+    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None, user_id=None: False)
     result = reader_push.flush_pending(db)
     assert result["ok"] is False
     assert result["online"] is False
@@ -33,7 +33,7 @@ def test_snapshot_skips_probe_until_remembered(monkeypatch):
     monkeypatch.setattr(
         reader_push,
         "reader_reachable",
-        lambda host, timeout=None, db=None: called.append(host) or True,
+        lambda host, timeout=None, db=None, user_id=None: called.append(host) or True,
     )
     reader_push._last_probe = None
     snap = reader_push.snapshot(db, probe=False)
@@ -122,14 +122,86 @@ def test_queue_items_lists_today_then_older_papers_then_files(tmp_path: Path, mo
     ]
 
 
+def test_queue_is_scoped_per_user(tmp_path: Path):
+    db = _session()
+    admin_file = tmp_path / "admin.epub"
+    member_file = tmp_path / "member.epub"
+    admin_file.write_bytes(b"admin")
+    member_file.write_bytes(b"member")
+    enqueue_sync_file(
+        db,
+        admin_file,
+        "admin.epub",
+        kind="crosspoint",
+        save_path="/News/admin.epub",
+        user_id=1,
+    )
+    enqueue_sync_file(
+        db,
+        member_file,
+        "member.epub",
+        kind="crosspoint",
+        save_path="/News/member.epub",
+        user_id=2,
+    )
+    assert [item["name"] for item in reader_push.queue_items(db, user_id=1)] == ["admin.epub"]
+    assert [item["name"] for item in reader_push.queue_items(db, user_id=2)] == ["member.epub"]
+    assert reader_push.cancel_pending(db, db.query(SyncTask).filter(SyncTask.user_id == 1).one().task_id, user_id=2) is False
+    assert reader_push.cancel_pending(db, db.query(SyncTask).filter(SyncTask.user_id == 1).one().task_id, user_id=1) is True
+    assert reader_push.pending_crosspoint(db, user_id=1) == []
+    assert len(reader_push.pending_crosspoint(db, user_id=2)) == 1
+
+
+def test_enqueue_briefing_and_library_only_own_files(tmp_path: Path, monkeypatch):
+    from app.models import LibraryFile
+    from app.services import library
+
+    monkeypatch.setattr(library, "LIBRARY_DIR", tmp_path)
+    monkeypatch.setattr(reader_push, "frozen_briefing_path", lambda *a, **k: None)
+    db = _session()
+    admin_dir = tmp_path / "1"
+    member_dir = tmp_path / "2"
+    admin_dir.mkdir()
+    member_dir.mkdir()
+    (admin_dir / "admin.pdf").write_bytes(b"a")
+    (member_dir / "member.pdf").write_bytes(b"m")
+    db.add(
+        LibraryFile(
+            user_id=1,
+            stored_name="1/admin.pdf",
+            original_name="admin.pdf",
+            title="Admin",
+            size=1,
+        )
+    )
+    db.add(
+        LibraryFile(
+            user_id=2,
+            stored_name="2/member.pdf",
+            original_name="member.pdf",
+            title="Member",
+            size=1,
+        )
+    )
+    db.commit()
+    tasks = reader_push.enqueue_briefing_and_library(db, user_id=2)
+    assert len(tasks) == 1
+    assert tasks[0].user_id == 2
+    assert Path(tasks[0].file_path).name == "member.pdf"
+
+
 def test_upload_marks_complete(tmp_path: Path, monkeypatch):
     db = _session()
     path = tmp_path / "news.epub"
     path.write_bytes(b"epub")
     enqueue_sync_file(db, path, "news.epub", kind="crosspoint", save_path="/News/news.epub")
     uploaded: list[str] = []
-    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None: True)
-    monkeypatch.setattr(reader_push, "upload_file", lambda host, file_path, dest, db=None: uploaded.append(file_path.name))
+    monkeypatch.setattr(reader_push, "reader_reachable", lambda _host, timeout=None, db=None, user_id=None: True)
+    monkeypatch.setattr(
+        reader_push,
+        "upload_file",
+        lambda host, file_path, dest, db=None, user_id=None: uploaded.append(file_path.name),
+    )
     result = reader_push.flush_pending(db)
     assert result["ok"] is True
     assert result["uploaded"] == 1

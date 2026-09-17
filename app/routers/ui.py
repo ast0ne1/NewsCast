@@ -28,7 +28,7 @@ from app.auth import (
 from app.config import ROOT_DIR, env
 from app.db import get_db
 from app.models import Feed, LibraryFile, Story, SyncTask, User, utcnow
-from app.services import backup, favicon, hostname, i18n, library, ntfy, paper_naming, passwords, qrcode, reader_push, settings, tls, translate, update
+from app.services import backup, favicon, hostname, i18n, library, ntfy, paper_naming, passwords, qrcode, reader_config, reader_push, settings, tls, translate, update
 from app.services import users as users_service
 from app.services import user_settings as user_settings_service
 from app.services.briefing import (
@@ -103,7 +103,7 @@ SETTINGS_LEDES = {
     "filters": "Words to keep or drop across every source. A feed can add more on Feeds.",
     "translation": "Choose the language Translate feeds land in, and whether Google or your LLM does the work.",
     "llm": "OpenAI or Ollama for short summaries and optional translation. Refresh still works without a model.",
-    "reader": "Xteink with CrossPoint, or Kobo with KOReader. Catalog login and push when the reader is on Wi-Fi.",
+    "reader": "Your reader device: Xteink with CrossPoint, or Kobo with KOReader. Host, upload folder, and push when on Wi-Fi are per account.",
     "notifications": "Phone alerts via ntfy when the paper is published or reaches the reader.",
     "categories": "Built-in groups stay. Add a country or topic, then fill it from Catalog.",
     "catalog": "Import a country or industry package, or export one of your categories as JSON to share.",
@@ -151,6 +151,25 @@ def _session_can_use_ntfy(db: Session, request: Request) -> bool:
         return True
     user = db.get(User, session.user_id) if session.user_id else None
     return users_service.user_may_use_ntfy(user)
+
+
+def _session_can_view_status(db: Session, request: Request) -> bool:
+    session = session_from_request(request)
+    if not session:
+        return False
+    if session.role == "admin":
+        return True
+    user = db.get(User, session.user_id) if session.user_id else None
+    return users_service.user_may_view_status(user)
+
+
+def _reader_redirect_next(db: Session, request: Request, next_value: str, *, default: str = "/library") -> str:
+    nxt = safe_next(next_value)
+    if nxt not in {"/status", "/library"}:
+        nxt = default
+    if nxt == "/status" and not _session_can_view_status(db, request):
+        return "/library"
+    return nxt
 
 
 def settings_path(tab: str | None = "device") -> str:
@@ -209,6 +228,8 @@ def _base_context(request: Request, db: Session, active: str) -> dict:
         "favicons": favicon.map_for_feeds(db.query(Feed).filter(Feed.user_id == uid).all()),
         "session_role": session.role if session else "user",
         "session_username": session.username if session else "",
+        "can_view_status": _session_can_view_status(db, request),
+        "reader_setup_nudge": reader_config.needs_setup_nudge(db, uid) if session else False,
         "ui_lang": lang,
     }
 
@@ -595,13 +616,15 @@ def catalog_page(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.get("/status")
 def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
+    if not _session_can_view_status(db, request):
+        return RedirectResponse("/library", status_code=303)
     uid = _current_user_id(request)
     session = session_from_request(request)
     username = (session.username if session else "") or settings.get_value(db, "admin_username") or "admin"
     story_count = db.query(Story).filter(Story.user_id == uid).count()
     share_url = hostname.get_share_url(db)
-    reader = reader_push.snapshot(db, probe=False)
-    delivery = delivery_status(db)
+    reader = reader_push.snapshot(db, probe=False, user_id=uid)
+    delivery = delivery_status(db, user_id=uid)
     public_base = hostname.get_public_base_url(db)
     opds_path = f"/opds/u/{username}"
     x3_path = f"/api/x3/u/{username}"
@@ -631,7 +654,7 @@ def status_page(request: Request, db: Annotated[Session, Depends(get_db)]):
             ),
             "update_check": update.last_check(db),
             "paper": paper_status(db, user_id=uid),
-            "reader_device": settings.reader_device(db),
+            "reader_device": reader_config.reader_device(db, uid),
             "health": status_health(db),
             "https_enabled": settings.https_enabled(db),
         },
@@ -648,7 +671,7 @@ def library_page(request: Request, db: Annotated[Session, Depends(get_db)]):
         {
             **_base_context(request, db, "library"),
             "library_files": _library_items(db, uid),
-            "reader": reader_push.snapshot(db, probe=False),
+            "reader": reader_push.snapshot(db, probe=False, user_id=uid),
         },
         db=db,
     )
@@ -710,14 +733,21 @@ def _settings_page_context(request: Request, db: Session, tab: str = "device") -
         "translate_provider": settings.translate_provider(db),
         "translate_target_languages": translate.TARGET_LANGUAGES,
         "translate_target_lang": settings.translate_target_lang(db),
-        "reader_device": settings.reader_device(db),
-        "reader_devices": settings.READER_DEVICES,
-        "reader_host": settings.get_value(db, "reader_host"),
-        "reader_upload_path": settings.get_value(db, "reader_upload_path"),
-        "reader_push_when_online": settings.reader_push_enabled(db),
-        "reader_ssh_port": settings.reader_ssh_port(db),
-        "reader_ssh_user": settings.reader_ssh_user(db),
-        "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
+        **(
+            reader_config.settings_context(db, db.get(User, uid))
+            if db.get(User, uid) is not None
+            else {
+                "reader_device": settings.reader_device(db),
+                "reader_devices": settings.READER_DEVICES,
+                "reader_host": settings.get_value(db, "reader_host"),
+                "reader_upload_path": settings.get_value(db, "reader_upload_path"),
+                "reader_push_when_online": settings.reader_push_enabled(db),
+                "reader_ssh_port": settings.reader_ssh_port(db),
+                "reader_ssh_user": settings.reader_ssh_user(db),
+                "reader_ssh_password": settings.secret_hint(db, "reader_ssh_password"),
+                "reader_setup_nudge": False,
+            }
+        ),
         "reader_title_pattern": paper_naming.reader_title_pattern(db),
         "reader_category_title_pattern": paper_naming.reader_category_title_pattern(db),
         "reader_date_format": paper_naming.reader_date_format(db),
@@ -728,7 +758,7 @@ def _settings_page_context(request: Request, db: Session, tab: str = "device") -
         "reader_paper_label": settings.get_value(db, "reader_paper_label"),
         "reader_title_preview": paper_naming.paper_display_title(db, date.today()),
         "reader_category_title_preview": paper_naming.paper_category_display_title(db, date.today(), "Tech"),
-        "delivery": delivery_status(db),
+        "delivery": delivery_status(db, user_id=uid),
         "ntfy_enabled": user_settings_service.flag_enabled(db, uid, "ntfy_enabled"),
         "ntfy_server": user_server or household_server,
         "ntfy_household_server": household_server,
@@ -791,11 +821,10 @@ def push_library_file(file_id: int, request: Request, db: Annotated[Session, Dep
 
 @router.post("/reader/poll")
 def poll_reader(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/library"):
-    nxt = safe_next(next)
-    if nxt not in {"/status", "/library"}:
-        nxt = "/library"
-    host = reader_push.reader_host(db)
-    online = reader_push.reader_reachable(host, db=db)
+    nxt = _reader_redirect_next(db, request, next, default="/library")
+    uid = _current_user_id(request)
+    host = reader_push.reader_host(db, user_id=uid)
+    online = reader_push.reader_reachable(host, db=db, user_id=uid)
     reader_push.remember_probe(host, online)
     message = f"{host} is {'online' if online else 'asleep'}."
     if _wants_json(request):
@@ -805,11 +834,10 @@ def poll_reader(request: Request, db: Annotated[Session, Depends(get_db)], next:
 
 @router.post("/reader/push")
 def push_reader_now(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
-    nxt = safe_next(next)
-    if nxt not in {"/status", "/library"}:
-        nxt = "/status"
-    reader_push.enqueue_briefing_and_library(db)
-    result = reader_push.flush_pending(db)
+    nxt = _reader_redirect_next(db, request, next, default="/library")
+    uid = _current_user_id(request)
+    reader_push.enqueue_briefing_and_library(db, user_id=uid)
+    result = reader_push.flush_pending(db, user_id=uid)
     if result.get("online"):
         message = f"Pushed {result.get('uploaded', 0)} file{'s' if result.get('uploaded') != 1 else ''} to the reader."
     else:
@@ -821,15 +849,16 @@ def push_reader_now(request: Request, db: Annotated[Session, Depends(get_db)], n
 
 @router.post("/reader/queue")
 def queue_reader_later(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
-    nxt = safe_next(next)
-    if nxt not in {"/status", "/library"}:
-        nxt = "/status"
-    tasks = reader_push.enqueue_briefing_and_library(db)
+    nxt = _reader_redirect_next(db, request, next, default="/library")
+    uid = _current_user_id(request)
+    tasks = reader_push.enqueue_briefing_and_library(db, user_id=uid)
     message = f"Queued {len(tasks)} file{'s' if len(tasks) != 1 else ''} for when the reader is on Wi-Fi."
-    if not paper_status(db)["published"]:
+    if not paper_status(db, user_id=uid)["published"]:
         message += " Today's paper is not published yet."
     if _wants_json(request):
-        return JSONResponse({"ok": True, "message": message, "pending": len(reader_push.pending_crosspoint(db))})
+        return JSONResponse(
+            {"ok": True, "message": message, "pending": len(reader_push.pending_crosspoint(db, user_id=uid))}
+        )
     return RedirectResponse(nxt, status_code=303)
 
 
@@ -840,10 +869,8 @@ def cancel_reader_queue(
     db: Annotated[Session, Depends(get_db)],
     next: Annotated[str, Form()] = "/status",
 ):
-    nxt = safe_next(next)
-    if nxt not in {"/status", "/library"}:
-        nxt = "/status"
-    if not reader_push.cancel_pending(db, task_id):
+    nxt = _reader_redirect_next(db, request, next, default="/library")
+    if not reader_push.cancel_pending(db, task_id, user_id=_current_user_id(request)):
         return _form_error(request, "That queued file was already gone.", nxt)
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": "Removed from the queue."})
@@ -852,12 +879,11 @@ def cancel_reader_queue(
 
 @router.post("/reader/publish")
 def publish_reader_paper(request: Request, db: Annotated[Session, Depends(get_db)], next: Annotated[str, Form()] = "/status"):
-    nxt = safe_next(next)
-    if nxt not in {"/status", "/library"}:
-        nxt = "/status"
-    publish_daily_briefing(db, overwrite=True, user_id=_current_user_id(request))
-    if settings.reader_push_enabled(db):
-        reader_push.enqueue_frozen_briefing(db)
+    nxt = _reader_redirect_next(db, request, next, default="/library")
+    uid = _current_user_id(request)
+    publish_daily_briefing(db, overwrite=True, user_id=uid)
+    if reader_config.reader_push_enabled(db, uid):
+        reader_push.enqueue_frozen_briefing(db, user_id=uid)
     message = "Published today's paper."
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message})
@@ -1274,49 +1300,38 @@ async def save_settings(
         if provider in settings.TRANSLATE_PROVIDER_IDS:
             settings.set_value(db, "translate_provider", provider)
     settings.set_value(db, "translate_target_lang", translate.normalize_target_lang(translate_target_lang))
-    device = settings.normalize_reader_device(reader_device)
-    settings.set_value(db, "reader_device", device)
-    host = reader_host.strip().removeprefix("http://").removeprefix("https://").split("/")[0]
-    if host:
-        settings.set_value(db, "reader_host", host)
-    elif device == "kobo":
-        settings.clear_value(db, "reader_host")
-    else:
-        settings.set_value(db, "reader_host", settings.DEFAULT_XTEINK_HOST)
-    default_folder = settings.DEFAULT_KOBO_FOLDER if device == "kobo" else settings.DEFAULT_XTEINK_FOLDER
-    folder = reader_upload_path.strip() or default_folder
-    if not folder.startswith("/"):
-        folder = "/" + folder
-    settings.set_value(db, "reader_upload_path", folder.rstrip("/") or default_folder)
-    settings.set_value(db, "reader_push_when_online", "1" if reader_push_when_online else "0")
-    if reader_ssh_port.strip():
-        try:
-            port = int(reader_ssh_port)
-        except ValueError:
-            return _settings_error(request, "SSH port must be a number.", tab)
-        if not 1 <= port <= 65535:
-            return _settings_error(request, "SSH port must be between 1 and 65535.", tab)
-        settings.set_value(db, "reader_ssh_port", str(port))
-    user = reader_ssh_user.strip() or settings.DEFAULT_KOBO_SSH_USER
-    settings.set_value(db, "reader_ssh_user", user)
-    if clear_reader_ssh_password:
-        settings.clear_value(db, "reader_ssh_password")
-    elif reader_ssh_password.strip():
-        settings.set_value(db, "reader_ssh_password", reader_ssh_password.strip())
-    settings.set_value(db, "reader_title_pattern", paper_naming.normalize_title_pattern(reader_title_pattern))
-    settings.set_value(
-        db,
-        "reader_category_title_pattern",
-        paper_naming.normalize_category_title_pattern(reader_category_title_pattern),
-    )
-    settings.set_value(db, "reader_date_format", paper_naming.normalize_date_format(reader_date_format))
-    label = paper_naming.normalize_paper_label(reader_paper_label)
-    if label:
-        settings.set_value(db, "reader_paper_label", label)
-    else:
-        settings.clear_value(db, "reader_paper_label")
-
     uid = _current_user_id(request)
+    user_row = db.get(User, uid)
+    if user_row is not None:
+        try:
+            reader_config.save_reader_settings(
+                db,
+                user_row,
+                reader_device_value=reader_device,
+                reader_host_value=reader_host,
+                reader_upload_path_value=reader_upload_path,
+                reader_push_when_online=bool(reader_push_when_online),
+                reader_ssh_port_value=reader_ssh_port,
+                reader_ssh_user_value=reader_ssh_user,
+                reader_ssh_password_value=reader_ssh_password,
+                clear_reader_ssh_password=bool(clear_reader_ssh_password),
+            )
+        except ValueError as exc:
+            return _settings_error(request, str(exc), tab)
+    if is_admin:
+        settings.set_value(db, "reader_title_pattern", paper_naming.normalize_title_pattern(reader_title_pattern))
+        settings.set_value(
+            db,
+            "reader_category_title_pattern",
+            paper_naming.normalize_category_title_pattern(reader_category_title_pattern),
+        )
+        settings.set_value(db, "reader_date_format", paper_naming.normalize_date_format(reader_date_format))
+        label = paper_naming.normalize_paper_label(reader_paper_label)
+        if label:
+            settings.set_value(db, "reader_paper_label", label)
+        else:
+            settings.clear_value(db, "reader_paper_label")
+
     # Per-user ntfy: only when admin grants can_use_ntfy (admins always allowed).
     if can_ntfy:
         ntfy.migrate_user_ntfy_from_instance(db, uid)
@@ -1591,6 +1606,22 @@ def restore_backup_form(
     return RedirectResponse(settings_path("backup"), status_code=303)
 
 
+@router.post("/settings/reader/nudge-dismiss")
+def dismiss_reader_setup_nudge(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    next: Annotated[str, Form()] = "/",
+):
+    session = session_from_request(request)
+    if not session or not session.user_id:
+        return RedirectResponse("/login", status_code=303)
+    reader_config.clear_setup_nudge(db, session.user_id)
+    nxt = safe_next(next)
+    if _wants_json(request):
+        return JSONResponse({"ok": True})
+    return RedirectResponse(nxt, status_code=303)
+
+
 @router.post("/settings/users")
 def create_user_form(
     request: Request,
@@ -1599,6 +1630,8 @@ def create_user_form(
     password: Annotated[str, Form()] = "",
     can_add_custom_sources: Annotated[str, Form()] = "",
     can_use_ntfy: Annotated[str, Form()] = "",
+    can_view_status: Annotated[str, Form()] = "",
+    copy_admin_reader: Annotated[str, Form()] = "",
 ):
     session = session_from_request(request)
     if not session or session.role != "admin":
@@ -1611,9 +1644,12 @@ def create_user_form(
             role="user",
             can_add_custom_sources=bool(can_add_custom_sources),
             can_use_ntfy=bool(can_use_ntfy),
+            can_view_status=bool(can_view_status),
         )
     except ValueError as exc:
         return _form_error(request, str(exc), settings_path("users"))
+    if copy_admin_reader:
+        reader_config.copy_admin_reader_settings(db, user)
     token = users_service.issue_login_token(db, user)
     share = hostname.get_public_base_url(db).rstrip("/")
     login_url = f"{share}/login/token/{token}"
@@ -1642,6 +1678,7 @@ def update_user_form(
     db: Annotated[Session, Depends(get_db)],
     can_add_custom_sources: Annotated[str, Form()] = "",
     can_use_ntfy: Annotated[str, Form()] = "",
+    can_view_status: Annotated[str, Form()] = "",
     active: Annotated[str, Form()] = "",
     new_password: Annotated[str, Form()] = "",
     new_password_confirm: Annotated[str, Form()] = "",
@@ -1664,6 +1701,7 @@ def update_user_form(
             user,
             can_add_custom_sources=bool(can_add_custom_sources) if user.role != "admin" else True,
             can_use_ntfy=bool(can_use_ntfy) if user.role != "admin" else True,
+            can_view_status=bool(can_view_status) if user.role != "admin" else True,
             active=bool(active) if user.role != "admin" else True,
             new_password=password or None,
         )
